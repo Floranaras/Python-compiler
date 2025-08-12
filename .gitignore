@@ -1,0 +1,29 @@
+# Build artifacts
+obj/
+*.o
+*.out
+*.exe
+*.a
+*.so
+*.dll
+
+# Debug & temp files
+*.pdb
+*.ilk
+*.log
+*.tmp
+
+# VS Code settings (except extensions-specific ones you want in git)
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# OS-specific junk
+# Windows
+Thumbs.db
+Desktop.ini
+# macOS
+.DS_Store
+
+# CMake build directory (if used)
+build/
