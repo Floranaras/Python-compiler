@@ -7,14 +7,16 @@
 // SYMBOL TABLE (Variable and Function Storage)
 // =============================================================================
 
-typedef enum {
+typedef enum 
+{
     VALUE_NUMBER,
     VALUE_STRING,
     VALUE_FUNCTION,
     VALUE_NONE
 } ValueType;
 
-typedef struct Value {
+typedef struct Value 
+{
     ValueType type;
     union {
         double number;
@@ -23,12 +25,14 @@ typedef struct Value {
     } data;
 } Value;
 
-typedef struct Symbol {
+typedef struct Symbol 
+{
     char* name;
     Value value;
 } Symbol;
 
-typedef struct SymbolTable {
+typedef struct SymbolTable 
+{
     Symbol* symbols;
     int count;
     int capacity;
@@ -37,6 +41,9 @@ typedef struct SymbolTable {
 
 // Create new symbol table
 SymbolTable* symbol_table_create(SymbolTable* parent);
+
+// Destroy symbol table and free memory
+void symbol_table_destroy(SymbolTable* table);
 
 // Find symbol in current table or parent tables
 Symbol* symbol_table_find(SymbolTable* table, char* name);

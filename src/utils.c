@@ -3,9 +3,11 @@
 #include "utils.h"
 
 // Read entire file into a string
-char* read_file(const char* filename) {
+char* read_file(const char* filename) 
+{
     FILE* file = fopen(filename, "r");
-    if (file == NULL) {
+    if (file == NULL) 
+	{
         printf("Error: Could not open file '%s'\n", filename);
         return NULL;
     }
@@ -17,7 +19,8 @@ char* read_file(const char* filename) {
 
     // Allocate memory for file content + null terminator
     char* content = malloc(file_size + 1);
-    if (content == NULL) {
+    if (content == NULL) 
+	{
         printf("Error: Could not allocate memory for file\n");
         fclose(file);
         return NULL;

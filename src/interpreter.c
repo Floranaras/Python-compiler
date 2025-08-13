@@ -8,16 +8,19 @@
 Value interpreter_evaluate(Interpreter* interp, ASTNode* node);
 
 // Evaluate binary operations
-static Value evaluate_binary_op(Interpreter* interp, ASTNode* node) {
+static Value evaluate_binary_op(Interpreter* interp, ASTNode* node) 
+{
     Value left = interpreter_evaluate(interp, node->data.binary_op.left);
     Value right = interpreter_evaluate(interp, node->data.binary_op.right);
     Value result;
 
     // Arithmetic operations
-    if (left.type == VALUE_NUMBER && right.type == VALUE_NUMBER) {
+    if (left.type == VALUE_NUMBER && right.type == VALUE_NUMBER) 
+	{
         result.type = VALUE_NUMBER;
 
-        switch (node->data.binary_op.operator) {
+        switch (node->data.binary_op.operator) 
+		{
             case TOKEN_PLUS:
                 result.data.number = left.data.number + right.data.number;
                 break;
@@ -28,12 +31,13 @@ static Value evaluate_binary_op(Interpreter* interp, ASTNode* node) {
                 result.data.number = left.data.number * right.data.number;
                 break;
             case TOKEN_DIVIDE:
-                if (right.data.number == 0) {
+                if (right.data.number == 0) 
+				{
                     printf("Runtime error: Division by zero at line %d\n", node->line_number);
                     result.data.number = 0;
-                } else {
+                } 
+				else 
                     result.data.number = left.data.number / right.data.number;
-                }
                 break;
             case TOKEN_EQUAL:
                 result.data.number = (left.data.number == right.data.number) ? 1 : 0;
@@ -60,14 +64,16 @@ static Value evaluate_binary_op(Interpreter* interp, ASTNode* node) {
     }
     // String concatenation
     else if (left.type == VALUE_STRING && right.type == VALUE_STRING &&
-             node->data.binary_op.operator == TOKEN_PLUS) {
+             node->data.binary_op.operator == TOKEN_PLUS) 
+	{
         result.type = VALUE_STRING;
         int len = strlen(left.data.string) + strlen(right.data.string) + 1;
         result.data.string = malloc(len);
         strcpy(result.data.string, left.data.string);
         strcat(result.data.string, right.data.string);
     }
-    else {
+    else 
+	{
         printf("Runtime error: Type mismatch in binary operation at line %d\n", node->line_number);
         result.type = VALUE_NONE;
     }
@@ -76,14 +82,17 @@ static Value evaluate_binary_op(Interpreter* interp, ASTNode* node) {
 }
 
 // Evaluate unary operations
-static Value evaluate_unary_op(Interpreter* interp, ASTNode* node) {
+static Value evaluate_unary_op(Interpreter* interp, ASTNode* node) 
+{
     Value operand = interpreter_evaluate(interp, node->data.unary_op.operand);
     Value result;
 
-    if (operand.type == VALUE_NUMBER) {
+    if (operand.type == VALUE_NUMBER) 
+	{
         result.type = VALUE_NUMBER;
 
-        switch (node->data.unary_op.operator) {
+        switch (node->data.unary_op.operator) 
+		{
             case TOKEN_MINUS:
                 result.data.number = -operand.data.number;
                 break;
@@ -94,7 +103,9 @@ static Value evaluate_unary_op(Interpreter* interp, ASTNode* node) {
                 printf("Runtime error: Unknown unary operator at line %d\n", node->line_number);
                 result.data.number = 0;
         }
-    } else {
+    } 
+	else 
+	{
         printf("Runtime error: Cannot apply unary operator to non-number at line %d\n",
                node->line_number);
         result.type = VALUE_NONE;
@@ -104,11 +115,13 @@ static Value evaluate_unary_op(Interpreter* interp, ASTNode* node) {
 }
 
 // Evaluate function call
-static Value evaluate_function_call(Interpreter* interp, ASTNode* node) {
+static Value evaluate_function_call(Interpreter* interp, ASTNode* node) 
+{
     Symbol* func_symbol = symbol_table_find(interp->current_scope,
                                            node->data.function_call.function_name);
 
-    if (func_symbol == NULL || func_symbol->value.type != VALUE_FUNCTION) {
+    if (func_symbol == NULL || func_symbol->value.type != VALUE_FUNCTION) 
+	{
         printf("Runtime error: Undefined function '%s' at line %d\n",
                node->data.function_call.function_name, node->line_number);
         Value result;
@@ -124,10 +137,12 @@ static Value evaluate_function_call(Interpreter* interp, ASTNode* node) {
     interp->current_scope = func_scope;
 
     // Bind parameters to arguments
-    for (int i = 0; i < func_def->data.function_def.param_count; i++) {
-        if (i < node->data.function_call.arg_count) {
-            Value arg_value = interpreter_evaluate(interp, node->data.function_call.arguments[i]);
-            symbol_table_set(func_scope, func_def->data.function_def.parameters[i], arg_value);
+    for (int j = 0; j < func_def->data.function_def.param_count; j++) 
+	{
+        if (j < node->data.function_call.arg_count) 
+		{
+            Value arg_value = interpreter_evaluate(interp, node->data.function_call.arguments[j]);
+            symbol_table_set(func_scope, func_def->data.function_def.parameters[j], arg_value);
         }
     }
 
@@ -135,6 +150,9 @@ static Value evaluate_function_call(Interpreter* interp, ASTNode* node) {
     bool old_returned = interp->has_returned;
     Value old_return_value = interp->return_value;
     interp->has_returned = false;
+    
+    // Initialize return value to NONE
+    interp->return_value.type = VALUE_NONE;
 
     interpreter_evaluate(interp, func_def->data.function_def.body);
 
@@ -145,15 +163,15 @@ static Value evaluate_function_call(Interpreter* interp, ASTNode* node) {
     interp->has_returned = old_returned;
     interp->return_value = old_return_value;
 
-    // Clean up function scope
-    free(func_scope->symbols);
-    free(func_scope);
+    // Properly clean up function scope
+    symbol_table_destroy(func_scope);
 
     return result;
 }
 
 // Create interpreter
-Interpreter* interpreter_create() {
+Interpreter* interpreter_create() 
+{
     Interpreter* interp = malloc(sizeof(Interpreter));
     interp->global_scope = symbol_table_create(NULL);
     interp->current_scope = interp->global_scope;
@@ -163,15 +181,16 @@ Interpreter* interpreter_create() {
 }
 
 // Main evaluation function
-Value interpreter_evaluate(Interpreter* interp, ASTNode* node) {
+Value interpreter_evaluate(Interpreter* interp, ASTNode* node) 
+{
     Value result;
     result.type = VALUE_NONE;
 
-    if (node == NULL) {
+    if (node == NULL) 
         return result;
-    }
 
-    switch (node->type) {
+    switch (node->type) 
+	{
         case AST_NUMBER:
             result.type = VALUE_NUMBER;
             result.data.number = node->data.number.value;
@@ -183,15 +202,15 @@ Value interpreter_evaluate(Interpreter* interp, ASTNode* node) {
             strcpy(result.data.string, node->data.string.value);
             break;
 
-        case AST_IDENTIFIER: {
+        case AST_IDENTIFIER: 
+		{
             Symbol* symbol = symbol_table_find(interp->current_scope,
                                              node->data.identifier.name);
-            if (symbol != NULL) {
+            if (symbol != NULL) 
                 result = symbol->value;
-            } else {
+			else 
                 printf("Runtime error: Undefined variable '%s' at line %d\n",
                        node->data.identifier.name, node->line_number);
-            }
             break;
         }
 
@@ -203,40 +222,43 @@ Value interpreter_evaluate(Interpreter* interp, ASTNode* node) {
             result = evaluate_unary_op(interp, node);
             break;
 
-        case AST_ASSIGNMENT: {
+        case AST_ASSIGNMENT: 
+		{
             Value value = interpreter_evaluate(interp, node->data.assignment.value);
             symbol_table_set(interp->current_scope, node->data.assignment.variable, value);
             result = value;
             break;
         }
 
-        case AST_IF_STMT: {
+        case AST_IF_STMT: 
+		{
             Value condition = interpreter_evaluate(interp, node->data.if_stmt.condition);
             bool is_true = (condition.type == VALUE_NUMBER && condition.data.number != 0);
 
-            if (is_true) {
+            if (is_true) 
                 result = interpreter_evaluate(interp, node->data.if_stmt.then_block);
-            } else if (node->data.if_stmt.else_block != NULL) {
+            else if (node->data.if_stmt.else_block != NULL) 
                 result = interpreter_evaluate(interp, node->data.if_stmt.else_block);
-            }
             break;
         }
 
-        case AST_WHILE_STMT: {
-            while (true) {
+        case AST_WHILE_STMT: 
+		{
+            while (true) 
+			{
                 Value condition = interpreter_evaluate(interp, node->data.while_stmt.condition);
                 bool is_true = (condition.type == VALUE_NUMBER && condition.data.number != 0);
 
-                if (!is_true || interp->has_returned) {
+                if (!is_true || interp->has_returned) 
                     break;
-                }
 
                 interpreter_evaluate(interp, node->data.while_stmt.body);
             }
             break;
         }
 
-        case AST_FUNCTION_DEF: {
+        case AST_FUNCTION_DEF: 
+		{
             Value func_value;
             func_value.type = VALUE_FUNCTION;
             func_value.data.function = node;
@@ -249,24 +271,25 @@ Value interpreter_evaluate(Interpreter* interp, ASTNode* node) {
             break;
 
         case AST_RETURN_STMT:
-            if (node->data.return_stmt.value != NULL) {
+            if (node->data.return_stmt.value != NULL) 
                 interp->return_value = interpreter_evaluate(interp, node->data.return_stmt.value);
-            } else {
+            else
                 interp->return_value.type = VALUE_NONE;
-            }
+
             interp->has_returned = true;
             break;
 
-        case AST_PRINT_STMT: {
+        case AST_PRINT_STMT: 
+		{
             Value value = interpreter_evaluate(interp, node->data.print_stmt.value);
 
-            switch (value.type) {
+            switch (value.type) 
+			{
                 case VALUE_NUMBER:
-                    if (value.data.number == (int)value.data.number) {
+                    if (value.data.number == (int)value.data.number) 
                         printf("%.0f\n", value.data.number);
-                    } else {
+                    else 
                         printf("%g\n", value.data.number);
-                    }
                     break;
                 case VALUE_STRING:
                     printf("%s\n", value.data.string);
@@ -281,15 +304,13 @@ Value interpreter_evaluate(Interpreter* interp, ASTNode* node) {
         }
 
         case AST_BLOCK:
-            for (int i = 0; i < node->data.block.count && !interp->has_returned; i++) {
-                result = interpreter_evaluate(interp, node->data.block.statements[i]);
-            }
+            for (int j = 0; j < node->data.block.count && !interp->has_returned; j++)
+                result = interpreter_evaluate(interp, node->data.block.statements[j]);
             break;
 
         case AST_PROGRAM:
-            for (int i = 0; i < node->data.program.count; i++) {
-                result = interpreter_evaluate(interp, node->data.program.statements[i]);
-            }
+            for (int j = 0; j < node->data.program.count; j++) 
+                result = interpreter_evaluate(interp, node->data.program.statements[j]);
             break;
 
         default:

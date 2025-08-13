@@ -17,6 +17,7 @@ typedef struct {
     int indent_top;     // Top of indent stack
     int indent_capacity;// Capacity of indent stack
     bool at_line_start; // Are we at the beginning of a line?
+    int pending_dedents; // Number of DEDENT tokens waiting to be returned
 } Lexer;
 
 // Initialize the lexer with source code
