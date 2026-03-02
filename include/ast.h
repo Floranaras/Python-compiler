@@ -46,12 +46,12 @@ typedef struct ASTNode {
 		struct {
 			struct ASTNode* left;
 			struct ASTNode* right;
-			TokenType operator;
+			enum token_type  operator;
 		} binary_op;
 
 		struct {
 			struct ASTNode* operand;
-			TokenType operator;
+			enum token_type operator;
 		} unary_op;
 
 		// Statements
@@ -119,6 +119,6 @@ ASTNode* ast_create_string(char* value, int line);
 ASTNode* ast_create_identifier(char* name, int line);
 
 // Create binary operation node
-ASTNode* ast_create_binary_op(ASTNode* left, TokenType op, ASTNode* right, int line);
+ASTNode* ast_create_binary_op(ASTNode* left,  enum token_type op, ASTNode* right, int line);
 
-#endif // AST_H
+#endif // AST_HTokenType
