@@ -1,62 +1,74 @@
-# Python Compiler in C
+# Python Interpreter in C
 
-A basic Python compiler implementation written in C that supports a subset of Python language features including variables, arithmetic operations, control flow, and functions.
+A Python interpreter implementation written in C that supports core Python language features including functions, recursion, control flow, and Python's indentation-based syntax.
 
 ## Features
 
-### Supported Python Language Features
-- **Variables and Assignment**: `x = 42`
-- **Arithmetic Operations**: `+`, `-`, `*`, `/`
-- **Comparison Operations**: `==`, `!=`, `<`, `>`, `<=`, `>=`
-- **Control Flow**: `if`/`else` statements, `while` loops
-- **Functions**: Function definitions with `def` and function calls
-- **Built-in Functions**: `print()` statements
-- **Data Types**: Numbers (integers and floats), strings
-- **Python-style Indentation**: Proper handling of indented code blocks
+### Supported Language Features
+- Variables and assignment
+- Arithmetic operations: `+`, `-`, `*`, `/`
+- Comparison operations: `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Control flow: `if`/`else` statements, `while` loops
+- Functions: definitions with `def`, calls with recursion support
+- Built-in `print()` function
+- Data types: numbers (integers and floats), strings
+- String concatenation with `+`
+- Python-style indentation with proper block handling
+- Comments with `#`
 
-### Compiler Architecture
-- **Lexical Analysis**: Tokenizes Python source code
-- **Parsing**: Builds Abstract Syntax Tree (AST) using recursive descent parser
-- **Interpretation**: Tree-walking interpreter for code execution
-- **Symbol Tables**: Variable and function scope management
+### Architecture
+- **Lexer**: Tokenizes Python source code with indentation handling via INDENT/DEDENT tokens
+- **Parser**: Recursive descent parser building an Abstract Syntax Tree
+- **Interpreter**: Tree-walking interpreter executing the AST directly
+- **Symbol Tables**: Lexical scoping with hierarchical symbol table chains
+- **Memory Management**: Comprehensive cleanup functions with AddressSanitizer testing
+- **Recursion Safety**: Call depth limited to 200 to prevent stack overflow
 
 ## Project Structure
 
 ```
 Python-compiler/
-├── include/            # Header files
-│   ├── compiler.h      # Main type definitions and structures
-│   ├── ast.h          # AST node creation functions
-│   ├── lexer.h        # Tokenization functions
-│   ├── parser.h       # Parsing functions
-│   ├── interpreter.h  # Code execution functions
-│   ├── symbol_table.h # Variable/function storage
-│   └── utils.h        # Utility functions
-├── src/               # Source files
-│   ├── main.c         # Main compiler driver
-│   ├── ast.c          # AST implementation
-│   ├── lexer.c        # Lexical analyzer
-│   ├── parser.c       # Recursive descent parser
-│   ├── interpreter.c  # Tree-walking interpreter
-│   ├── symbol_table.c # Symbol table implementation
-│   └── utils.c        # File I/O utilities
-├── obj/               # Compiled object files
-├── Makefile           # Build configuration
-└── README.md          # This file
+├── include/           # Header files
+│   ├── ast.h         # AST node definitions and constructors
+│   ├── interpreter.h # Interpreter state and evaluation
+│   ├── lexer.h       # Lexer state and tokenization
+│   ├── parser.h      # Parser state and parsing
+│   ├── symbol_table.h# Symbol table and value types
+│   ├── token.h       # Token type definitions
+│   └── utils.h       # File I/O utilities
+├── src/              # Source files
+│   ├── ast.c         # AST implementation
+│   ├── interpreter.c # Tree-walking interpreter
+│   ├── lexer.c       # Lexical analyzer with indent handling
+│   ├── main.c        # Main driver and built-in tests
+│   ├── parser.c      # Recursive descent parser
+│   ├── symbol_table.c# Symbol table implementation
+│   └── utils.c       # File reading utilities
+├── python_compiler.c # Unity build entry point
+├── Makefile          # Build configuration
+└── README.md         # This file
 ```
 
-## Building the Compiler
+## Building
 
 ### Prerequisites
-- C compiler (clang or gcc)
+- GCC or Clang compiler
 - Make utility
+- Linux/Unix environment (POSIX.1-2008)
 
-### Compilation
+### Standard Build
 ```bash
 make
 ```
 
-This creates the `python-compiler` executable.
+This compiles the project as a unity build and creates the `python-compiler` executable.
+
+### Debug Build with AddressSanitizer
+```bash
+make debug
+```
+
+Compiles with debug symbols and address sanitizer enabled for detecting memory errors.
 
 ### Clean Build
 ```bash
@@ -64,21 +76,33 @@ make clean
 make
 ```
 
+### Run Test Suite
+```bash
+make test
+```
+
+Executes all Python files in the `tests/` directory and reports pass/fail counts.
+
+### Generate compile_commands.json for LSP
+```bash
+make compdb
+```
+
+Creates `compile_commands.json` for language server integration with editors like VS Code or Neovim.
+
 ## Usage
 
-### Run Built-in Test Cases
+### Run Built-in Test Suite
+Run the interpreter without arguments to execute the seven built-in tests:
 ```bash
 ./python-compiler
 ```
 
-### Compile and Run Python File
+Expected output shows test results for arithmetic, conditionals, loops, functions, recursion, comments, and string operations.
+
+### Execute a Python File
 ```bash
 ./python-compiler program.py
-```
-
-### Debug Mode (Shows Tokens and AST)
-```bash
-./python-compiler -d program.py
 ```
 
 ### Help
@@ -88,7 +112,7 @@ make
 
 ## Example Programs
 
-### Basic Arithmetic
+### Arithmetic
 ```python
 x = 10
 y = 20
@@ -105,7 +129,7 @@ else:
     print("Minor")
 ```
 
-### Loops
+### While Loops
 ```python
 count = 0
 while count < 5:
@@ -113,7 +137,7 @@ while count < 5:
     count = count + 1
 ```
 
-### Functions
+### Functions and Recursion
 ```python
 def square(x):
     return x * x
@@ -124,96 +148,134 @@ def factorial(n):
     else:
         return n * factorial(n - 1)
 
-print(square(5))
-print(factorial(5))
+print(square(5))       # Output: 25
+print(factorial(5))    # Output: 120
+```
+
+### String Operations
+```python
+greeting = "Hello"
+name = "World"
+print(greeting + " " + name)  # Output: Hello World
 ```
 
 ## Implementation Details
 
 ### Lexical Analysis
-The lexer converts Python source code into tokens, handling:
-- Keywords (if, else, while, def, return, print)
-- Operators (+, -, *, /, ==, !=, <, >, <=, >=, =)
-- Literals (numbers, strings)
-- Identifiers (variable and function names)
-- Delimiters (parentheses, brackets, colons, commas)
-- Python indentation (INDENT/DEDENT tokens)
+The lexer handles Python's significant whitespace by maintaining an indent stack and generating INDENT/DEDENT tokens. Supports:
+- Keywords: `if`, `else`, `while`, `def`, `return`, `print`
+- Operators: `+`, `-`, `*`, `/`, `=`, `==`, `!=`, `<`, `>`, `<=`, `>=`
+- Literals: numeric (integers and floats), string (with escape sequences)
+- Identifiers: variable and function names
+- Delimiters: `(`, `)`, `,`, `:`
+- Comments: lines beginning with `#`
+- Structural tokens: `NEWLINE`, `INDENT`, `DEDENT`
 
 ### Parsing
-Recursive descent parser that builds an AST from tokens:
-- Expression parsing with operator precedence
-- Statement parsing (assignments, control flow, function definitions)
-- Block parsing with proper indentation handling
-- Error recovery for malformed syntax
+Recursive descent parser constructing an AST with proper operator precedence. Handles:
+- Expression parsing with binary and unary operators
+- Statement parsing: assignments, control flow, function definitions
+- Block parsing with indentation-based scope delimiters
+- Function parameters with validation (maximum 64 parameters)
 
 ### Interpretation
-Tree-walking interpreter that executes the AST:
-- Variable storage and retrieval
-- Function definition and calling with local scopes
-- Control flow evaluation
-- Built-in function execution (print)
-- Runtime error handling
+Tree-walking interpreter evaluating the AST with:
+- Dynamic typing using tagged unions
+- Hierarchical symbol tables for lexical scoping
+- Function calls with local scope creation
+- Call depth tracking to prevent stack overflow
+- Return value propagation through the call stack
 
 ### Symbol Tables
-Hierarchical symbol tables for scope management:
-- Global scope for top-level variables and functions
-- Local scopes for function parameters and variables
-- Parent scope lookup for variable resolution
+Scope chain implementation:
+- Global scope for module-level bindings
+- Local scopes created for each function call
+- Parent pointer chain for variable resolution
+- Automatic memory management of string values
+
+### Memory Management
+- All heap allocations paired with cleanup functions
+- Recursive freeing of AST nodes
+- Symbol table destruction with value cleanup
+- No memory leaks when tested with AddressSanitizer
 
 ## Limitations
 
 ### Not Implemented
-- Lists, dictionaries, and other complex data types
+- Lists, dictionaries, tuples, sets
+- For loops and `range()`
 - Classes and object-oriented features
 - Import statements and modules
-- Exception handling (try/except)
+- Exception handling
 - Generators and iterators
 - List comprehensions
 - Lambda functions
-- Multiple assignment (a, b = 1, 2)
+- Multiple assignment
+- Boolean type (uses numeric truthiness)
+- Additional built-in functions beyond `print()`
 
 ### Current Restrictions
-- Limited string operations (only concatenation with +)
-- No boolean type (uses numbers: 0 = false, non-zero = true)
-- Function parameters must match argument count exactly
-- No default parameter values
-- No variable argument lists
+- String operations limited to concatenation
+- Function argument count must match parameter count exactly
+- No default parameter values or keyword arguments
+- No variable-length argument lists
+- Integer division returns float result
+- No bitwise or logical operators (`and`, `or`, `not`)
+
+## Technical Notes
+
+### Unity Build
+The project uses a unity build approach where `python_compiler.c` includes all translation units. This provides:
+- Faster compilation through single-pass processing
+- Better opportunities for compiler optimization
+- Simplified dependency management
+
+Traditional separate compilation is also supported through the individual source files.
+
+### Call Depth Limiting
+Function calls are limited to 200 levels of recursion. This prevents stack overflow while providing sufficient depth for practical programs. The limit is enforced in the interpreter before creating new stack frames.
+
+### Indentation Handling
+The lexer maintains a stack of indentation levels measured in spaces (tabs count as 4 spaces). When indentation increases, an INDENT token is emitted. When it decreases, one or more DEDENT tokens are queued. Blank lines and comment-only lines are ignored for indentation purposes.
+
+### Value Semantics
+Runtime values are represented as tagged unions:
+- `VALUE_NUMBER`: IEEE-754 double precision
+- `VALUE_STRING`: heap-allocated C string (owned)
+- `VALUE_FUNCTION`: borrowed pointer to AST function definition node
+- `VALUE_NONE`: represents Python's `None` and void returns
 
 ## Development
 
-### Adding New Features
-1. Add token types to `TokenType` enum in `compiler.h`
+### Adding Features
+To extend the interpreter:
+1. Add token types to `enum token_type` in `token.h`
 2. Update lexer in `lexer.c` to recognize new syntax
-3. Add AST node types to `ASTNodeType` enum
-4. Extend parser in `parser.c` for new grammar rules
+3. Add AST node types to `enum ast_node_type` in `ast.h`
+4. Extend parser in `parser.c` with new grammar rules
 5. Implement evaluation in `interpreter.c`
+6. Add memory cleanup in `ast_free()` if needed
 
-### Debugging
-Use debug mode to see the compilation process:
+### Testing
+Add new test cases to the `tests[]` array in `main.c`. Each test includes a name and source code string. The built-in test runner executes all tests when the interpreter runs without arguments.
+
+For external test files, create a `tests/` directory with `.py` files and run:
 ```bash
-./python-compiler -d program.py
+mkdir -p tests
+# Add your .py test files to tests/
+make test
 ```
 
-This shows:
-- Token stream from lexical analysis
-- Abstract syntax tree structure
-- Execution output
+The test target runs all Python files in `tests/` and reports how many passed or failed.
 
 ### Code Style
-- Follow C99 standard
-- Use descriptive variable names
-- Include error handling for runtime errors
-- Memory management with proper malloc/free usage
-
-## Contributing
-
-When contributing to this project:
-1. Maintain the existing code structure
-2. Add appropriate error handling
-3. Update this README for new features
-4. Test with provided example programs
-5. Ensure proper memory management
+- C99 standard compliance
+- POSIX.1-2008 for file I/O
+- Comprehensive error messages with line numbers
+- Defensive programming with NULL checks
+- Consistent naming: `snake_case` for functions and variables
+- Structured error handling via stderr
 
 ## License
 
-This project is for educational purposes, demonstrating compiler construction techniques and Python language implementation concepts.
+Educational project demonstrating interpreter implementation and compiler construction techniques.
