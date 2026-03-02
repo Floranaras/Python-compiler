@@ -4,23 +4,40 @@
 #include "token.h"
 #include "ast.h"
 
-// =============================================================================
-// PARSER
-// =============================================================================
+/**
+ * struct parser - Recursive-descent parser state.
+ * @tokens:      Token array produced by the lexer (not owned).
+ * @position:    Index of the current token.
+ * @token_count: Total number of tokens in @tokens.
+ */
+struct parser {
+	struct token	*tokens;
+	int		 position;
+	int		 token_count;
+};
 
-typedef struct {
-    Token* tokens;      // Array of tokens
-    int position;       // Current position in token array
-    int token_count;    // Total number of tokens
-} Parser;
+/**
+ * parser_create() - Initialise a parser over a token array.
+ * @tokens: Token array; must outlive the parser.
+ * @count:  Number of tokens in @tokens.
+ *
+ * Return: Pointer to parser, or NULL on allocation failure.
+ */
+struct parser *parser_create(struct token *tokens, int count);
 
-// Create parser with token array
-Parser* parser_create(Token* tokens, int count);
+/**
+ * parser_destroy() - Free the parser struct.
+ * @parser: Parser to destroy.  Does not free the token array.
+ */
+void parser_destroy(struct parser *parser);
 
-// Free parser
-void parser_destroy(Parser* parser);
+/**
+ * parser_parse_program() - Parse all top-level statements into an AST.
+ * @parser: Initialised parser.
+ *
+ * Return: AST_PROGRAM root node, or NULL on unrecoverable error.
+ *         Caller must call ast_free() on the result.
+ */
+struct ast_node *parser_parse_program(struct parser *parser);
 
-// Parse entire program
-ASTNode* parser_parse_program(Parser* parser);
-
-#endif // PARSER_H
+#endif 
