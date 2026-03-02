@@ -1,32 +1,58 @@
 #ifndef LEXER_H
 #define LEXER_H
 
-#include <stdbool.h>
 #include "token.h"
 
-// =============================================================================
-// LEXER (TOKENIZER)
-// =============================================================================
+/**
+ * struct lexer - Tokeniser state for a single source string.
+ * @source:          NUL-terminated source code (not owned by lexer).
+ * @source_len:      Cached strlen(@source); avoids repeated O(n) calls.
+ * @position:        Current byte offset into @source.
+ * @line:            Current line number (1-based).
+ * @column:          Current column number (1-based).
+ * @indent_stack:    Stack of active indentation levels in spaces.
+ * @indent_top:      Index of the top element in @indent_stack.
+ * @indent_capacity: Allocated length of @indent_stack.
+ * @at_line_start:   Non-zero when the next char begins a new line.
+ * @pending_dedents: DEDENT tokens queued but not yet returned.
+ */
+struct lexer {
+	const char *source;
+	int source_len;
+	int position;
+	int line;
+	int column;
+	int *indent_stack;
+	int indent_top;
+	int indent_capacity;
+	int at_line_start;
+	int pending_dedents;
+};
 
-typedef struct {
-    char* source;       // Source code string
-    int position;       // Current position in source
-    int line;           // Current line number
-    int column;         // Current column number
-    int* indent_stack;  // Stack for tracking indentation levels
-    int indent_top;     // Top of indent stack
-    int indent_capacity;// Capacity of indent stack
-    bool at_line_start; // Are we at the beginning of a line?
-    int pending_dedents; // Number of DEDENT tokens waiting to be returned
-} Lexer;
+/**
+ * lexer_create() - Allocate and initialise a lexer for @source.
+ * @source: NUL-terminated source string.  The lexer does not take
+ *          ownership; caller must ensure it outlives the lexer.
+ *
+ * Return: Pointer to lexer, or NULL on allocation failure.
+ */
+struct lexer *lexer_create(const char *source);
 
-// Initialize the lexer with source code
-Lexer* lexer_create(char* source);
+/**
+ * lexer_destroy() - Free a lexer and its internal buffers.
+ * @lexer: Lexer to destroy.  Safe to call with NULL.
+ */
+void lexer_destroy(struct lexer *lexer);
 
-// Free lexer memory
-void lexer_destroy(Lexer* lexer);
+/**
+ * lexer_next_token() - Produce the next token from the source stream.
+ * @lexer: Active lexer state.
+ *
+ * The returned token's @value field is heap-allocated and must be
+ * freed by the caller (or via token_array_free() in main.c).
+ *
+ * Return: The next token.  Returns TOKEN_EOF at end of input.
+ */
+struct token lexer_next_token(struct lexer *lexer);
 
-// Get the next token from the source
-Token lexer_next_token(Lexer* lexer);
-
-#endif // LEXER_H
+#endif
