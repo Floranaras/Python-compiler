@@ -4,6 +4,9 @@ A Python interpreter implementation written in C that supports core Python langu
 
 ## Features
 
+### Video Demo
+![PyInterp](assets/python-intep.gif)
+
 ### Supported Language Features
 - Variables and assignment
 - Arithmetic operations: `+`, `-`, `*`, `/`
