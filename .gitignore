@@ -28,3 +28,4 @@ Desktop.ini
 # CMake build directory (if used)
 build/
 .cache/
+python-compiler.dSYM/
