@@ -27,3 +27,4 @@ Desktop.ini
 
 # CMake build directory (if used)
 build/
+.cache/
