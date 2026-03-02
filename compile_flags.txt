@@ -1,1 +1,4 @@
--Iinclude
+-Wall
+-Wextra
+-std=c99
+-I../include/
