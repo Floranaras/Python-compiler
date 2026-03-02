@@ -1,0 +1,37 @@
+[
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/ast.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/ast.c"
+  },
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/interpreter.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/interpreter.c"
+  },
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/lexer.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/lexer.c"
+  },
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/main.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/main.c"
+  },
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/parser.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/parser.c"
+  },
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/symbol_table.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/symbol_table.c"
+  },
+  {
+    "directory": "/Users/callo/Github/Python-compiler",
+    "file": "src/utils.c",
+    "command": "gcc -Wall -Wextra -std=c99 -I include/ -c src/utils.c"
+  }
+]
