@@ -2,7 +2,7 @@ CC      = gcc
 CFLAGS  = -Wall -Wextra -std=c99 -O2 -I include/
 DBFLAGS = -Wall -Wextra -std=c99 -g  -fsanitize=address -I include/
 
-TARGET  = build/python-compiler
+TARGET  = python-compiler
 UNITY   = python_compiler.c
 SRCS    = $(wildcard src/*.c)
 HDRS    = $(wildcard include/*.h)
@@ -16,9 +16,6 @@ $(TARGET): $(UNITY) $(SRCS) $(HDRS) | build/
 
 debug: $(UNITY) $(SRCS) $(HDRS) | build/
 	$(CC) $(DBFLAGS) -o $(TARGET) $(UNITY)
-
-build/:
-	mkdir -p build/
 
 test: all
 	@passed=0; failed=0; \
@@ -49,4 +46,4 @@ compdb:
 	@echo "wrote compile_commands.json ($(PWD))"
 
 clean:
-	rm -rf build/
+	rm python-compiler
