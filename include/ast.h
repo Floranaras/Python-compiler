@@ -3,122 +3,178 @@
 
 #include "token.h"
 
-// =============================================================================
-// ABSTRACT SYNTAX TREE (AST) DEFINITIONS
-// =============================================================================
+/**
+ * enum ast_node_type - Discriminator tag for every AST node variant.
+ */
+enum ast_node_type {
+	AST_PROGRAM,		/* root of the tree            */
+	AST_NUMBER,		/* numeric literal             */
+	AST_STRING,		/* string literal              */
+	AST_IDENTIFIER,		/* variable reference          */
+	AST_BINARY_OP,		/* left OP right               */
+	AST_UNARY_OP,		/* OP operand                  */
+	AST_ASSIGNMENT,		/* name = expr                 */
+	AST_IF_STMT,		/* if / else                   */
+	AST_WHILE_STMT,		/* while loop                  */
+	AST_FUNCTION_DEF,	/* def name(params): body      */
+	AST_FUNCTION_CALL,	/* name(args)                  */
+	AST_RETURN_STMT,	/* return [expr]               */
+	AST_PRINT_STMT,		/* print(expr)                 */
+	AST_BLOCK		/* indented statement sequence */
+};
 
-typedef enum {
-	AST_PROGRAM,        // Root node
-	AST_NUMBER,         // Numeric literal
-	AST_STRING,         // String literal
-	AST_IDENTIFIER,     // Variable reference
-	AST_BINARY_OP,      // Binary operation (+, -, *, /, ==, etc.)
-	AST_UNARY_OP,       // Unary operation (-, +)
-	AST_ASSIGNMENT,     // Variable assignment
-	AST_IF_STMT,        // If statement
-	AST_WHILE_STMT,     // While loop
-	AST_FUNCTION_DEF,   // Function definition
-	AST_FUNCTION_CALL,  // Function call
-	AST_RETURN_STMT,    // Return statement
-	AST_PRINT_STMT,     // Print statement (built-in)
-	AST_BLOCK           // Block of statements
-} ASTNodeType;
-
-typedef struct ASTNode {
-	ASTNodeType type;
-	int line_number;
+/**
+ * struct ast_node - A single node in the abstract syntax tree.
+ * @type:        Which variant this node represents.
+ * @line_number: Source line for error reporting.
+ * @data:        Variant-specific payload (anonymous union).
+ *
+ * Every heap-allocated string inside @data is owned by the node
+ * and must be released by ast_free().
+ */
+struct ast_node {
+	enum ast_node_type	 type;
+	int			 line_number;
 
 	union {
-		// Literals
+		/* Literals */
 		struct {
 			double value;
 		} number;
 
 		struct {
-			char* value;
+			char *value;
 		} string;
 
 		struct {
-			char* name;
+			char *name;
 		} identifier;
 
-		// Operations
+		/* Expressions */
 		struct {
-			struct ASTNode* left;
-			struct ASTNode* right;
-			enum token_type  operator;
+			struct ast_node		*left;
+			struct ast_node		*right;
+			enum token_type		 op;
 		} binary_op;
 
 		struct {
-			struct ASTNode* operand;
-			enum token_type operator;
+			struct ast_node		*operand;
+			enum token_type		 op;
 		} unary_op;
 
-		// Statements
+		/* Statements */
 		struct {
-			char* variable;
-			struct ASTNode* value;
+			char			*variable;
+			struct ast_node		*value;
 		} assignment;
 
 		struct {
-			struct ASTNode* condition;
-			struct ASTNode* then_block;
-			struct ASTNode* else_block;  // Can be NULL
+			struct ast_node		*condition;
+			struct ast_node		*then_block;
+			struct ast_node		*else_block; /* NULL if absent */
 		} if_stmt;
 
 		struct {
-			struct ASTNode* condition;
-			struct ASTNode* body;
+			struct ast_node		*condition;
+			struct ast_node		*body;
 		} while_stmt;
 
 		struct {
-			char* name;
-			char** parameters;      // Array of parameter names
-			int param_count;
-			struct ASTNode* body;
+			char			 *name;
+			char			**parameters;
+			int			  param_count;
+			struct ast_node		 *body;
 		} function_def;
 
 		struct {
-			char* function_name;
-			struct ASTNode** arguments;
-			int arg_count;
+			char			 *function_name;
+			struct ast_node		**arguments;
+			int			  arg_count;
 		} function_call;
 
 		struct {
-			struct ASTNode* value;  // Can be NULL for bare return
+			struct ast_node		*value; /* NULL for bare return */
 		} return_stmt;
 
 		struct {
-			struct ASTNode* value;
+			struct ast_node		*value;
 		} print_stmt;
 
-		// Collections
+		/* Collections */
 		struct {
-			struct ASTNode** statements;
-			int count;
+			struct ast_node		**statements;
+			int			  count;
+			int			  capacity;
 		} block;
 
 		struct {
-			struct ASTNode** statements;
-			int count;
+			struct ast_node		**statements;
+			int			  count;
+			int			  capacity;
 		} program;
-
 	} data;
-} ASTNode;
+};
 
-// Create a new AST node
-ASTNode* ast_create_node(ASTNodeType type, int line_number);
+/* Hard limit on function parameters and call arguments. */
+#define AST_MAX_PARAMS		64
 
-// Create number node
-ASTNode* ast_create_number(double value, int line);
+/* Initial statement capacity for blocks; doubles on overflow. */
+#define AST_BLOCK_INIT_CAP	16
 
-// Create string node
-ASTNode* ast_create_string(char* value, int line);
+/**
+ * ast_create_node() - Allocate and zero-initialise a new AST node.
+ * @type:        Node discriminator.
+ * @line_number: Source line (for diagnostics).
+ *
+ * Return: Pointer to node on success, NULL on allocation failure.
+ */
+struct ast_node *ast_create_node(enum ast_node_type type, int line_number);
 
-// Create identifier node
-ASTNode* ast_create_identifier(char* name, int line);
+/**
+ * ast_create_number() - Convenience constructor for a numeric literal.
+ * @value: The numeric value.
+ * @line:  Source line.
+ *
+ * Return: Pointer to node, or NULL on failure.
+ */
+struct ast_node *ast_create_number(double value, int line);
 
-// Create binary operation node
-ASTNode* ast_create_binary_op(ASTNode* left,  enum token_type op, ASTNode* right, int line);
+/**
+ * ast_create_string() - Convenience constructor for a string literal.
+ * @value: String content (copied into the node).
+ * @line:  Source line.
+ *
+ * Return: Pointer to node, or NULL on failure.
+ */
+struct ast_node *ast_create_string(const char *value, int line);
 
-#endif // AST_HTokenType
+/**
+ * ast_create_identifier() - Convenience constructor for an identifier.
+ * @name: Identifier text (copied into the node).
+ * @line: Source line.
+ *
+ * Return: Pointer to node, or NULL on failure.
+ */
+struct ast_node *ast_create_identifier(const char *name, int line);
+
+/**
+ * ast_create_binary_op() - Convenience constructor for a binary expression.
+ * @left:  Left-hand sub-tree (ownership transferred to the new node).
+ * @op:    Operator token type.
+ * @right: Right-hand sub-tree (ownership transferred to the new node).
+ * @line:  Source line.
+ *
+ * Return: Pointer to node, or NULL on failure.
+ */
+struct ast_node *ast_create_binary_op(struct ast_node *left,
+				      enum token_type op,
+				      struct ast_node *right,
+				      int line);
+
+/**
+ * ast_free() - Recursively free a node and all of its descendants.
+ * @node: Root of the sub-tree to free.  Safe to call with NULL.
+ */
+void ast_free(struct ast_node *node);
+
+#endif /* AST_H */
