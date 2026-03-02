@@ -1,35 +1,39 @@
+#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include "utils.h"
 
-// Read entire file into a string
-char* read_file(const char* filename) 
+/**
+ * read_file() - Read a file's contents into a heap-allocated string.
+ */
+char *read_file(const char *filename)
 {
-    FILE* file = fopen(filename, "r");
-    if (file == NULL) 
-	{
-        printf("Error: Could not open file '%s'\n", filename);
-        return NULL;
-    }
+	FILE *file;
+	long size;
+	char *buf;
+	size_t nread;
 
-    // Get file size
-    fseek(file, 0, SEEK_END);
-    long file_size = ftell(file);
-    fseek(file, 0, SEEK_SET);
+	file = fopen(filename, "r");
+	if (!file) {
+		fprintf(stderr, "error: cannot open '%s'\n", filename);
+		return NULL;
+	}
 
-    // Allocate memory for file content + null terminator
-    char* content = malloc(file_size + 1);
-    if (content == NULL) 
-	{
-        printf("Error: Could not allocate memory for file\n");
-        fclose(file);
-        return NULL;
-    }
+	fseek(file, 0, SEEK_END);
+	size = ftell(file);
+	fseek(file, 0, SEEK_SET);
 
-    // Read file content
-    size_t bytes_read = fread(content, 1, file_size, file);
-    content[bytes_read] = '\0';
+	buf = malloc(size + 1);
+	if (!buf) {
+		fprintf(stderr,
+			"error: out of memory reading '%s'\n", 
+			filename);
+		fclose(file);
+		return NULL;
+	}
 
-    fclose(file);
-    return content;
+	nread = fread(buf, 1, size, file);
+	buf[nread] = '\0';
+
+	fclose(file);
+	return buf;
 }
