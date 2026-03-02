@@ -1,23 +1,26 @@
 #include "utils.h"
 #include "ast.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 
 /**
  * ast_create_node() - Allocate and zero-initialise a new AST node.
  */
 struct ast_node *ast_create_node(enum ast_node_type type, int line_number)
 {
-	struct ast_node *node = calloc(1, sizeof(*node));
+	struct ast_node *node;
+
+	node = calloc(1, sizeof(*node));
 
 	if (!node) {
 		fprintf(stderr, "ast: out of memory\n");
 		return NULL;
 	}
 
-	node->type		= type;
-	node->line_number	= line_number;
+	node->type        = type;
+	node->line_number = line_number;
+
 	return node;
 }
 
@@ -26,8 +29,9 @@ struct ast_node *ast_create_node(enum ast_node_type type, int line_number)
  */
 struct ast_node *ast_create_number(double value, int line)
 {
-	struct ast_node *node = ast_create_node(AST_NUMBER, line);
+	struct ast_node *node;
 
+	node = ast_create_node(AST_NUMBER, line);
 	if (!node)
 		return NULL;
 
@@ -40,8 +44,12 @@ struct ast_node *ast_create_number(double value, int line)
  */
 struct ast_node *ast_create_string(const char *value, int line)
 {
-	struct ast_node *node = ast_create_node(AST_STRING, line);
+	struct ast_node *node;
 
+	if (!value)
+		return NULL;
+
+	node = ast_create_node(AST_STRING, line);
 	if (!node)
 		return NULL;
 
@@ -59,8 +67,12 @@ struct ast_node *ast_create_string(const char *value, int line)
  */
 struct ast_node *ast_create_identifier(const char *name, int line)
 {
-	struct ast_node *node = ast_create_node(AST_IDENTIFIER, line);
+	struct ast_node *node;
 
+	if (!name)
+		return NULL;
+
+	node = ast_create_node(AST_IDENTIFIER, line);
 	if (!node)
 		return NULL;
 
@@ -81,15 +93,60 @@ struct ast_node *ast_create_binary_op(struct ast_node *left,
 				      struct ast_node *right,
 				      int line)
 {
-	struct ast_node *node = ast_create_node(AST_BINARY_OP, line);
+	struct ast_node *node;
 
+	if (!left || !right)
+		return NULL;
+
+	node = ast_create_node(AST_BINARY_OP, line);
 	if (!node)
 		return NULL;
 
-	node->data.binary_op.left	= left;
-	node->data.binary_op.op		= op;
-	node->data.binary_op.right	= right;
+	node->data.binary_op.left  = left;
+	node->data.binary_op.op    = op;
+	node->data.binary_op.right = right;
 	return node;
+}
+
+/* --- Free helpers per node type ----------------------------------------- */
+
+static void free_function_def(struct ast_node *node)
+{
+	int j;
+
+	free(node->data.function_def.name);
+	for (j = 0; j < node->data.function_def.param_count; j++)
+		free(node->data.function_def.parameters[j]);
+	free(node->data.function_def.parameters);
+	ast_free(node->data.function_def.body);
+}
+
+static void free_function_call(struct ast_node *node)
+{
+	int j;
+
+	free(node->data.function_call.function_name);
+	for (j = 0; j < node->data.function_call.arg_count; j++)
+		ast_free(node->data.function_call.arguments[j]);
+	free(node->data.function_call.arguments);
+}
+
+static void free_block(struct ast_node *node)
+{
+	int j;
+
+	for (j = 0; j < node->data.block.count; j++)
+		ast_free(node->data.block.statements[j]);
+	free(node->data.block.statements);
+}
+
+static void free_program(struct ast_node *node)
+{
+	int j;
+
+	for (j = 0; j < node->data.program.count; j++)
+		ast_free(node->data.program.statements[j]);
+	free(node->data.program.statements);
 }
 
 /**
@@ -97,8 +154,6 @@ struct ast_node *ast_create_binary_op(struct ast_node *left,
  */
 void ast_free(struct ast_node *node)
 {
-	int i;
-
 	if (!node)
 		return;
 
@@ -106,73 +161,48 @@ void ast_free(struct ast_node *node)
 	case AST_STRING:
 		free(node->data.string.value);
 		break;
-
 	case AST_IDENTIFIER:
 		free(node->data.identifier.name);
 		break;
-
 	case AST_BINARY_OP:
 		ast_free(node->data.binary_op.left);
 		ast_free(node->data.binary_op.right);
 		break;
-
 	case AST_UNARY_OP:
 		ast_free(node->data.unary_op.operand);
 		break;
-
 	case AST_ASSIGNMENT:
 		free(node->data.assignment.variable);
 		ast_free(node->data.assignment.value);
 		break;
-
 	case AST_IF_STMT:
 		ast_free(node->data.if_stmt.condition);
 		ast_free(node->data.if_stmt.then_block);
 		ast_free(node->data.if_stmt.else_block);
 		break;
-
 	case AST_WHILE_STMT:
 		ast_free(node->data.while_stmt.condition);
 		ast_free(node->data.while_stmt.body);
 		break;
-
 	case AST_FUNCTION_DEF:
-		free(node->data.function_def.name);
-		for (i = 0; i < node->data.function_def.param_count; i++)
-			free(node->data.function_def.parameters[i]);
-		free(node->data.function_def.parameters);
-		ast_free(node->data.function_def.body);
+		free_function_def(node);
 		break;
-
 	case AST_FUNCTION_CALL:
-		free(node->data.function_call.function_name);
-		for (i = 0; i < node->data.function_call.arg_count; i++)
-			ast_free(node->data.function_call.arguments[i]);
-		free(node->data.function_call.arguments);
+		free_function_call(node);
 		break;
-
 	case AST_RETURN_STMT:
 		ast_free(node->data.return_stmt.value);
 		break;
-
 	case AST_PRINT_STMT:
 		ast_free(node->data.print_stmt.value);
 		break;
-
 	case AST_BLOCK:
-		for (i = 0; i < node->data.block.count; i++)
-			ast_free(node->data.block.statements[i]);
-		free(node->data.block.statements);
+		free_block(node);
 		break;
-
 	case AST_PROGRAM:
-		for (i = 0; i < node->data.program.count; i++)
-			ast_free(node->data.program.statements[i]);
-		free(node->data.program.statements);
+		free_program(node);
 		break;
-
 	case AST_NUMBER:
-		/* scalar — no heap members */
 		break;
 	}
 

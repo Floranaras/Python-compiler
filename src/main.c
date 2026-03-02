@@ -1,328 +1,247 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-
+#include "utils.h"
 #include "token.h"
 #include "lexer.h"
 #include "parser.h"
 #include "interpreter.h"
-#include "utils.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-// =============================================================================
-// MAIN COMPILER DRIVER
-// =============================================================================
+#define TOKEN_INIT_CAP	1024
 
-// Tokenize source code
-static Token* tokenize(char* source, int* token_count) 
+/* --- Token array --------------------------------------------------------- */
+
+static void token_array_free(struct token *tokens, int count)
 {
-    Lexer* lexer = lexer_create(source);
-    Token* tokens = malloc(sizeof(Token) * 1024);
-    *token_count = 0;
-    int capacity = 1024;
+	int j;
 
-    while (true) 
-	{
-        Token token = lexer_next_token(lexer);
-
-        // Reallocate if we need more space
-        if (*token_count >= capacity) 
-		{
-            capacity *= 2;
-            tokens = realloc(tokens, sizeof(Token) * capacity);
-        }
-
-        tokens[*token_count] = token;
-        (*token_count)++;
-
-        if (token.type == TOKEN_EOF || token.type == TOKEN_ERROR) 
-            break;
-    }
-
-    lexer_destroy(lexer);
-    return tokens;
-}
-
-// Print tokens (for debugging)
-static void print_tokens(Token* tokens, int count) 
-{
-    printf("=== TOKENS ===\n");
-    for (int j = 0; j < count; j++) 
-        printf("Line %d: %s (%d)\n", tokens[j].line, tokens[j].value, tokens[j].type);
-
-    printf("\n");
-}
-
-// Print AST (for debugging)
-// Print AST (for debugging)
-static void print_ast(ASTNode* node, int indent) 
-{
-    if (node == NULL) 
+	if (!tokens)
 		return;
-
-    for (int i = 0; i < indent; i++) 
-		printf("  ");
-
-    switch (node->type) 
-	{
-        case AST_NUMBER:
-            printf("Number: %g\n", node->data.number.value);
-            break;
-        case AST_STRING:
-            printf("String: \"%s\"\n", node->data.string.value);
-            break;
-        case AST_IDENTIFIER:
-            printf("Identifier: %s\n", node->data.identifier.name);
-            break;
-        case AST_BINARY_OP:
-            printf("BinaryOp: %d\n", node->data.binary_op.operator);
-            print_ast(node->data.binary_op.left, indent + 1);
-            print_ast(node->data.binary_op.right, indent + 1);
-            break;
-        case AST_UNARY_OP:
-            printf("UnaryOp: %d\n", node->data.unary_op.operator);
-            print_ast(node->data.unary_op.operand, indent + 1);
-            break;
-        case AST_ASSIGNMENT:
-            printf("Assignment: %s =\n", node->data.assignment.variable);
-            print_ast(node->data.assignment.value, indent + 1);
-            break;
-        case AST_IF_STMT:
-            printf("If:\n");
-            print_ast(node->data.if_stmt.condition, indent + 1);
-            print_ast(node->data.if_stmt.then_block, indent + 1);
-            if (node->data.if_stmt.else_block) 
-                print_ast(node->data.if_stmt.else_block, indent + 1);
-            break;
-        case AST_WHILE_STMT:
-            printf("While:\n");
-            print_ast(node->data.while_stmt.condition, indent + 1);
-            print_ast(node->data.while_stmt.body, indent + 1);
-            break;
-        case AST_FUNCTION_DEF:
-            printf("FunctionDef: %s(", node->data.function_def.name);
-            for (int i = 0; i < node->data.function_def.param_count; i++) {
-                printf("%s", node->data.function_def.parameters[i]);
-                if (i < node->data.function_def.param_count - 1) printf(", ");
-            }
-            printf(")\n");
-            print_ast(node->data.function_def.body, indent + 1);
-            break;
-        case AST_FUNCTION_CALL:
-            printf("FunctionCall: %s(", node->data.function_call.function_name);
-            for (int i = 0; i < node->data.function_call.arg_count; i++) {
-                if (i > 0) printf(", ");
-                printf("arg%d", i);
-            }
-            printf(")\n");
-            for (int i = 0; i < node->data.function_call.arg_count; i++) {
-                print_ast(node->data.function_call.arguments[i], indent + 1);
-            }
-            break;
-        case AST_RETURN_STMT:
-            printf("Return:\n");
-            if (node->data.return_stmt.value) {
-                print_ast(node->data.return_stmt.value, indent + 1);
-            }
-            break;
-        case AST_PRINT_STMT:
-            printf("Print:\n");
-            print_ast(node->data.print_stmt.value, indent + 1);
-            break;
-        case AST_BLOCK:
-            printf("Block:\n");
-            for (int i = 0; i < node->data.block.count; i++) 
-                print_ast(node->data.block.statements[i], indent + 1);
-            break;
-        case AST_PROGRAM:
-            printf("Program:\n");
-            for (int i = 0; i < node->data.program.count; i++) 
-                print_ast(node->data.program.statements[i], indent + 1);
-            break;
-        default:
-            printf("Unknown node type: %d\n", node->type);
-    }
+	for (j = 0; j < count; j++)
+		free(tokens[j].value);
+	free(tokens);
 }
 
-// Compile and run Python source code
-void compile_and_run(char* source, bool debug) 
+/* grow_tokens() - Double token array capacity. Returns new pointer or NULL. */
+static struct token *grow_tokens(struct token *tokens, int *capacity)
 {
-    printf("=== COMPILING PYTHON CODE ===\n");
+	struct token	*grown;
+	int		 new_cap = (*capacity) * 2;
 
-    // Step 1: Tokenization
-    int token_count;
-    Token* tokens = tokenize(source, &token_count);
+	grown = realloc(tokens, sizeof(struct token) * new_cap);
+	if (!grown)
+		return NULL;
+	*capacity = new_cap;
+	return grown;
+}
 
-    if (debug) 
-        print_tokens(tokens, token_count);
+static struct token *tokenise(const char *source, int *count)
+{
+	struct lexer *lex;
+	struct token *tokens;
+	struct token *grown;
+	int capacity = TOKEN_INIT_CAP;
+	struct token tok;
 
-    // Check for tokenization errors
-    for (int i = 0; i < token_count; i++) 
-	{
-        if (tokens[i].type == TOKEN_ERROR) 
+	if (!source || !count)
+		return NULL;
+
+	lex = lexer_create(source);
+	if (!lex)
+		return NULL;
+
+	tokens = malloc(sizeof(struct token) * capacity);
+	if (!tokens) {
+		lexer_destroy(lex);
+		return NULL;
+	}
+
+	*count = 0;
+
+	for (;;) {
+		tok = lexer_next_token(lex);
+
+		if (*count >= capacity) {
+			grown = grow_tokens(tokens, &capacity);
+			if (!grown) {
+				token_array_free(tokens, *count);
+				lexer_destroy(lex);
+				return NULL;
+			}
+			tokens = grown;
+		}
+
+		tokens[(*count)++] = tok;
+
+		if (tok.type == TOKEN_EOF || tok.type == TOKEN_ERROR)
+			break;
+	}
+
+	lexer_destroy(lex);
+	return tokens;
+}
+
+/* --- Compilation pipeline ----------------------------------------------- */
+
+static int compile_and_run(const char *source)
+{
+	int token_count = 0;
+	struct token *tokens;
+	struct parser *parser;
+	struct ast_node	*ast;
+	struct interpreter *interp;
+	int j;
+	int rc = 0;
+
+	if (!source)
+		return 1;
+
+	tokens = tokenise(source, &token_count);
+	if (!tokens)
+		return 1;
+
+	for (j = 0; j < token_count; j++) {
+		if (tokens[j].type != TOKEN_ERROR)
+			continue;
+		fprintf(stderr,
+			"lexer error: invalid token '%s' "
+			"at line %d\n",
+			tokens[j].value, tokens[j].line);
+		token_array_free(tokens, token_count);
+		return 1;
+	}
+
+	parser = parser_create(tokens, token_count);
+	if (!parser) {
+		token_array_free(tokens, token_count);
+		return 1;
+	}
+
+	ast = parser_parse_program(parser);
+	parser_destroy(parser);
+
+	if (!ast) {
+		fprintf(stderr, "parse error: could not build AST\n");
+		token_array_free(tokens, token_count);
+		return 1;
+	}
+
+	interp = interpreter_create();
+	if (!interp) {
+		rc = 1;
+		goto done;
+	}
+
+	interpreter_evaluate(interp, ast);
+	interpreter_destroy(interp);
+
+done:
+	ast_free(ast);
+	token_array_free(tokens, token_count);
+	return rc;
+}
+
+/* --- Built-in tests ------------------------------------------------------ */
+
+static void run_tests(void)
+{
+	static const struct {
+		const char *name;
+		const char *source;
+	} tests[] = {
 		{
-            printf("Tokenization error: invalid token '%s' at line %d\n",
-                   tokens[i].value, tokens[i].line);
-            return;
-        }
-    }
+			"arithmetic",
+			"x = 10\n"
+			"y = 20\n"
+			"result = x + y * 2\n"
+			"print(result)\n"
+		},
+		{
+			"conditionals",
+			"age = 18\n"
+			"if age >= 18:\n"
+			"    print(\"Adult\")\n"
+		},
+		{
+			"while loop",
+			"count = 0\n"
+			"while count < 3:\n"
+			"    print(count)\n"
+			"    count = count + 1\n"
+		},
+		{
+			"functions",
+			"def square(x):\n"
+			"    return x * x\n"
+			"\n"
+			"result = square(5)\n"
+			"print(result)\n"
+		},
+		{
+			"recursion",
+			"def factorial(n):\n"
+			"    if n <= 1:\n"
+			"        return 1\n"
+			"    else:\n"
+			"        return n * factorial(n - 1)\n"
+			"\n"
+			"print(factorial(5))\n"
+		},
+		{
+			"comments",
+			"# compute a product\n"
+			"x = 6\n"
+			"y = 7\n"
+			"print(x * y)\n"
+		},
+		{
+			"string concat",
+			"a = \"hello\"\n"
+			"b = \" world\"\n"
+			"print(a + b)\n"
+		},
+	};
 
-    // Step 2: Parsing
-    Parser* parser = parser_create(tokens, token_count);
-    ASTNode* ast = parser_parse_program(parser);
+	int ntests = (int)(sizeof(tests) / sizeof(tests[0]));
+	int j;
 
-    if (ast == NULL) 
-	{
-        printf("Parsing failed\n");
-        parser_destroy(parser);
-        free(tokens);
-        return;
-    }
-
-    if (debug) 
-	{
-        printf("=== AST ===\n");
-        print_ast(ast, 0);
-        printf("\n");
-    }
-
-    // Step 3: Interpretation/Execution
-    printf("=== EXECUTION OUTPUT ===\n");
-    Interpreter* interpreter = interpreter_create();
-    interpreter_evaluate(interpreter, ast);
-
-    // Cleanup
-    parser_destroy(parser);
-    free(tokens);
-    free(interpreter);
-
-    printf("\n=== COMPILATION COMPLETE ===\n");
+	printf("Running %d built-in tests\n\n", ntests);
+	for (j = 0; j < ntests; j++) {
+		printf("--- Test %d: %s ---\n", j + 1, tests[j].name);
+		compile_and_run(tests[j].source);
+		printf("\n");
+	}
 }
 
-// =============================================================================
-// EXAMPLE USAGE AND TESTS
-// =============================================================================
+/* --- Entry point --------------------------------------------------------- */
 
-static void show_usage(const char* program_name) 
+int main(int argc, char *argv[])
 {
-    printf("Basic Python Compiler in C\n");
-    printf("===========================\n\n");
-    printf("Usage:\n");
-    printf("  %s                    - Run built-in test cases\n", program_name);
-    printf("  %s <file.py>          - Compile and run Python file\n", program_name);
-    printf("  %s -d <file.py>       - Compile with debug output\n", program_name);
-    printf("  %s --help             - Show this help message\n", program_name);
-    printf("\nSupported Python features:\n");
-    printf("  • Variables and assignment: x = 42\n");
-    printf("  • Arithmetic: +, -, *, /\n");
-    printf("  • Comparisons: ==, !=, <, >, <=, >=\n");
-    printf("  • Control flow: if/else, while loops\n");
-    printf("  • Functions: def func(params): ...\n");
-    printf("  • Built-in: print()\n");
-    printf("  • String literals: \"hello\"\n");
-    printf("  • Proper Python indentation\n");
-}
+	char	*source;
+	int	 rc;
 
-static void run_builtin_tests() 
-{
-    printf("Running built-in test cases...\n\n");
+	if (argc == 1) {
+		run_tests();
+		return 0;
+	}
 
-    // Test 1: Basic arithmetic
-    printf("Test 1: Basic Arithmetic\n");
-    char* test1 =
-        "x = 10\n"
-        "y = 20\n"
-        "result = x + y * 2\n"
-        "print(result)\n";
-    compile_and_run(test1, false);
+	if (!strcmp(argv[1], "--help") || !strcmp(argv[1], "-h")) {
+		printf("Usage: %s [file.py]\n", argv[0]);
+		return 0;
+	}
 
-    // Test 2: Conditionals
-    printf("\nTest 2: Conditionals\n");
-    char* test2 =
-        "age = 18\n"
-        "if age >= 18:\n"
-        "    print(\"Adult\")\n";
-    compile_and_run(test2, false);
+	if (argc != 2) {
+		fprintf(stderr,
+			"error: expected one argument\n"
+			"Usage: %s [file.py]\n", argv[0]);
+		return 1;
+	}
 
-    // Test 3: Loops
-    printf("\nTest 3: While Loop\n");
-    char* test3 =
-        "count = 0\n"
-        "while count < 3:\n"
-        "    print(count)\n"
-        "    count = count + 1\n";
-    compile_and_run(test3, false);
+	source = read_file(argv[1]);
+	if (!source)
+		return 1;
 
-    // Test 4: Functions
-    printf("\nTest 4: Functions\n");
-    char* test4 =
-        "def square(x):\n"
-        "    return x * x\n"
-        "\n"
-        "result = square(5)\n"
-        "print(result)\n";
-    compile_and_run(test4, false);
-
-    // Test 5: Factorial function
-    printf("\nTest 5: Factorial Function\n");
-    char* test5 =
-        "def factorial(n):\n"
-        "    if n <= 1:\n"
-        "        return 1\n"
-        "    else:\n"
-        "        return n * factorial(n - 1)\n"
-        "\n"
-        "print(factorial(5))\n";
-    compile_and_run(test5, false);
-}
-
-int main(int argc, char* argv[]) {
-    // No arguments - run built-in tests
-    if (argc == 1) 
-	{
-        run_builtin_tests();
-        return 0;
-    }
-
-    // Help option
-    if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)) 
-	{
-        show_usage(argv[0]);
-        return 0;
-    }
-
-    // Debug mode with file
-    if (argc == 3 && !strcmp(argv[1], "-d")) 
-	{
-        char* source = read_file(argv[2]);
-        if (source == NULL) 
-            return 1;
-
-        printf("Compiling '%s' with debug output:\n", argv[2]);
-        printf("================================\n");
-        compile_and_run(source, true);  // Enable debug output
-
-        free(source);
-        return 0;
-    }
-
-    // Regular file compilation
-    if (argc == 2) 
-	{
-        char* source = read_file(argv[1]);
-        if (source == NULL) 
-            return 1;
-
-        printf("Compiling and running '%s':\n", argv[1]);
-        printf("============================\n");
-        compile_and_run(source, false);
-
-        free(source);
-        return 0;
-    }
-
-    // Invalid arguments
-    printf("Error: Invalid arguments\n\n");
-    show_usage(argv[0]);
-    return 1;
+	rc = compile_and_run(source);
+	free(source);
+	return rc;
 }

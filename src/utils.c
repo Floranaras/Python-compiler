@@ -1,16 +1,22 @@
+/* SPDX-License-Identifier: MIT */
 #include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 
 /**
- * read_file() - Read a file's contents into a heap-allocated string.
+ * read_file() - Read a file into a heap-allocated string.
  */
 char *read_file(const char *filename)
 {
-	FILE *file;
-	long size;
-	char *buf;
-	size_t nread;
+	FILE	*file;
+	long	 size;
+	char	*buf;
+	size_t	 nread;
+
+	if (!filename) {
+		fprintf(stderr, "error: null filename\n");
+		return NULL;
+	}
 
 	file = fopen(filename, "r");
 	if (!file) {
@@ -22,16 +28,20 @@ char *read_file(const char *filename)
 	size = ftell(file);
 	fseek(file, 0, SEEK_SET);
 
-	buf = malloc(size + 1);
-	if (!buf) {
-		fprintf(stderr,
-			"error: out of memory reading '%s'\n", 
-			filename);
+	if (size < 0) {
+		fprintf(stderr, "error: cannot stat '%s'\n", filename);
 		fclose(file);
 		return NULL;
 	}
 
-	nread = fread(buf, 1, size, file);
+	buf = malloc(size + 1);
+	if (!buf) {
+		fprintf(stderr, "error: out of memory\n");
+		fclose(file);
+		return NULL;
+	}
+
+	nread      = fread(buf, 1, size, file);
 	buf[nread] = '\0';
 
 	fclose(file);

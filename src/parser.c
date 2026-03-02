@@ -1,491 +1,757 @@
+#include "utils.h"
+#include "parser.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdbool.h>
-#include "parser.h"
 
-// Forward declarations for recursive descent parsing
-static ASTNode* parser_parse_expression(Parser* parser);
-static ASTNode* parser_parse_statement(Parser* parser);
-static ASTNode* parser_parse_block(Parser* parser);
+#define MAX_PARAMS	64
+#define MAX_ARGS	64
+#define BLOCK_INIT_CAP	16
+#define PROG_INIT_CAP	64
 
-// Create parser with token array
-Parser* parser_create(Token* tokens, int count) 
+/* Forward declarations — grammar is mutually recursive. */
+static struct ast_node *parse_expression(struct parser *p);
+static struct ast_node *parse_statement(struct parser *p);
+static struct ast_node *parse_block(struct parser *p);
+
+/* --- Parser utilities ---------------------------------------------------- */
+
+/**
+ * parser_create() - Initialise a parser over a token array.
+ */
+struct parser *parser_create(struct token *tokens, int count)
 {
-    Parser* parser = malloc(sizeof(Parser));
-    parser->tokens = tokens;
-    parser->position = 0;
-    parser->token_count = count;
-    return parser;
+	struct parser *p;
+
+	if (!tokens || count <= 0)
+		return NULL;
+
+	p = calloc(1, sizeof(*p));
+	if (!p) {
+		fprintf(stderr, "parser: out of memory\n");
+		return NULL;
+	}
+
+	p->tokens      = tokens;
+	p->position    = 0;
+	p->token_count = count;
+	return p;
 }
 
-// Free parser
-void parser_destroy(Parser* parser) 
+/**
+ * parser_destroy() - Free the parser struct (not the token array).
+ */
+void parser_destroy(struct parser *p)
 {
-    free(parser);
+	free(p);
 }
 
-// Get current token
-static Token* parser_current_token(Parser* parser) 
+static struct token *cur(const struct parser *p)
 {
-    if (parser->position >= parser->token_count) 
-	{
-        static Token eof_token = {TOKEN_EOF, "EOF", 0, 0, 0};
-        return &eof_token;
-    }
+	static struct token eof_tok = {
+		TOKEN_EOF, "EOF", 0, 0, 0.0
+	};
 
-    return &parser->tokens[parser->position];
+	if (!p || p->position >= p->token_count)
+		return &eof_tok;
+	return &p->tokens[p->position];
 }
 
-// Advance to next token
-static void parser_advance(Parser* parser) 
+static void advance(struct parser *p)
 {
-    if (parser->position < parser->token_count) 
-        parser->position++;
+	if (p && p->position < p->token_count)
+		p->position++;
 }
 
-// Check if current token matches expected type
-static bool parser_match(Parser* parser, TokenType type) 
+static int match(const struct parser *p, enum token_type type)
 {
-    return parser_current_token(parser)->type == type;
+	return cur(p)->type == type;
 }
 
-// Consume token if it matches expected type
-static bool parser_consume(Parser* parser, TokenType type) 
+static int consume(struct parser *p, enum token_type type)
 {
-    if (parser_match(parser, type)) 
-	{
-        parser_advance(parser);
-        return true;
-    }
-    return false;
+	if (!match(p, type))
+		return 0;
+	advance(p);
+	return 1;
 }
 
-// Skip newlines (they're often optional)
-static void parser_skip_newlines(Parser* parser) 
+static void skip_newlines(struct parser *p)
 {
-    while (parser_match(parser, TOKEN_NEWLINE)) 
-        parser_advance(parser);
+	while (match(p, TOKEN_NEWLINE))
+		advance(p);
 }
 
-// Parse primary expressions (numbers, identifiers, parentheses)
-static ASTNode* parser_parse_primary(Parser* parser) 
+/* --- Statement list helpers --------------------------------------------- */
+
+/*
+ * append_stmt() - Append a statement to a growing list.
+ *
+ * Doubles capacity via realloc when the list is full.
+ * Returns 0 on allocation failure.
+ */
+static int append_stmt(struct ast_node ***stmts, int *count,
+		       int *capacity, struct ast_node *stmt)
 {
-    Token* token = parser_current_token(parser);
+	struct ast_node **new_list;
+	int new_cap;
 
-    // Handle unexpected tokens that shouldn't be in expressions
-    if (token->type == TOKEN_ELSE || token->type == TOKEN_COLON ||
-        token->type == TOKEN_DEDENT || token->type == TOKEN_EOF) 
-	{
-        printf("Parse error: unexpected token '%s' at line %d\n", token->value, token->line);
-        return NULL;
-    }
+	if (*count < *capacity) {
+		(*stmts)[(*count)++] = stmt;
+		return 1;
+	}
 
-    if (parser_match(parser, TOKEN_NUMBER)) 
-	{
-        parser_advance(parser);
-        return ast_create_number(token->number, token->line);
-    }
+	new_cap  = (*capacity) * 2;
+	new_list = realloc(*stmts, sizeof(struct ast_node *) * new_cap);
+	if (!new_list) {
+		fprintf(stderr, "parser: out of memory\n");
+		return 0;
+	}
 
-    if (parser_match(parser, TOKEN_STRING)) 
-	{
-        parser_advance(parser);
-        return ast_create_string(token->value, token->line);
-    }
-
-    if (parser_match(parser, TOKEN_IDENTIFIER)) 
-	{
-        parser_advance(parser);
-
-        // Check for function call
-        if (parser_match(parser, TOKEN_LPAREN)) 
-		{
-            parser_advance(parser); // consume '('
-
-            ASTNode* call = ast_create_node(AST_FUNCTION_CALL, token->line);
-            call->data.function_call.function_name = malloc(strlen(token->value) + 1);
-            strcpy(call->data.function_call.function_name, token->value);
-
-            // Parse arguments
-            call->data.function_call.arguments = malloc(sizeof(ASTNode*) * 16);
-            call->data.function_call.arg_count = 0;
-
-            if (!parser_match(parser, TOKEN_RPAREN)) 
-			{
-                do 
-				{
-                    ASTNode* arg = parser_parse_expression(parser);
-                    if (arg != NULL) 
-                        call->data.function_call.arguments[call->data.function_call.arg_count++] = arg;
-                } while (parser_consume(parser, TOKEN_COMMA));
-            }
-
-            parser_consume(parser, TOKEN_RPAREN);
-            return call;
-        } 
-		else 
-            return ast_create_identifier(token->value, token->line);
-    }
-
-    if (parser_match(parser, TOKEN_LPAREN)) 
-	{
-        parser_advance(parser); // consume '('
-        ASTNode* expr = parser_parse_expression(parser);
-        parser_consume(parser, TOKEN_RPAREN);
-        return expr;
-    }
-
-    // Error: unexpected token
-    printf("Parse error: unexpected token '%s' at line %d\n", token->value, token->line);
-    return NULL;
+	*stmts    = new_list;
+	*capacity = new_cap;
+	(*stmts)[(*count)++] = stmt;
+	return 1;
 }
 
-// Parse unary expressions (-, +)
-static ASTNode* parser_parse_unary(Parser* parser) 
+/* --- Expression parsing -------------------------------------------------- */
+
+static struct ast_node *parse_call_args(struct parser *p,
+					struct ast_node *call,
+					const struct token *tok)
 {
-    if (parser_match(parser, TOKEN_MINUS) || parser_match(parser, TOKEN_PLUS)) 
-	{
-        Token* op = parser_current_token(parser);
-        parser_advance(parser);
+	struct ast_node *arg;
 
-        ASTNode* operand = parser_parse_unary(parser);
-        if (operand == NULL) 
-            return NULL; // Propagate error
+	advance(p); /* consume '(' */
 
-        ASTNode* node = ast_create_node(AST_UNARY_OP, op->line);
-        node->data.unary_op.operator = op->type;
-        node->data.unary_op.operand = operand;
-        return node;
-    }
+	if (match(p, TOKEN_RPAREN)) {
+		consume(p, TOKEN_RPAREN);
+		return call;
+	}
 
-    return parser_parse_primary(parser);
+	do {
+		if (call->data.function_call.arg_count >= MAX_ARGS) {
+			fprintf(stderr,
+				"parse error: too many args "
+				"at line %d\n", tok->line);
+			ast_free(call);
+			return NULL;
+		}
+		arg = parse_expression(p);
+		if (!arg) {
+			ast_free(call);
+			return NULL;
+		}
+		call->data.function_call.arguments[
+			call->data.function_call.arg_count++] = arg;
+	} while (consume(p, TOKEN_COMMA));
+
+	consume(p, TOKEN_RPAREN);
+	return call;
 }
 
-// Parse multiplication and division
-static ASTNode* parser_parse_term(Parser* parser) 
+static struct ast_node *parse_identifier_or_call(struct parser *p)
 {
-    ASTNode* left = parser_parse_unary(parser);
-    if (left == NULL)
-        return NULL; // Propagate error
+	struct token *tok = cur(p);
+	struct ast_node *call;
 
-    while (parser_match(parser, TOKEN_MULTIPLY) || parser_match(parser, TOKEN_DIVIDE)) 
-	{
-        Token* op = parser_current_token(parser);
-        parser_advance(parser);
-        ASTNode* right = parser_parse_unary(parser);
-        if (right == NULL) 
-            return NULL; // Propagate error
-        left = ast_create_binary_op(left, op->type, right, op->line);
-    }
+	advance(p);
 
-    return left;
+	if (!match(p, TOKEN_LPAREN))
+		return ast_create_identifier(tok->value, tok->line);
+
+	call = ast_create_node(AST_FUNCTION_CALL, tok->line);
+	if (!call)
+		return NULL;
+
+	call->data.function_call.function_name = strdup(tok->value);
+	call->data.function_call.arguments =
+		malloc(sizeof(struct ast_node *) * MAX_ARGS);
+	call->data.function_call.arg_count = 0;
+
+	if (!call->data.function_call.function_name ||
+	    !call->data.function_call.arguments) {
+		ast_free(call);
+		return NULL;
+	}
+
+	return parse_call_args(p, call, tok);
 }
 
-// Parse addition and subtraction
-static ASTNode* parser_parse_arithmetic(Parser* parser) 
+static struct ast_node *parse_primary(struct parser *p)
 {
-    ASTNode* left = parser_parse_term(parser);
-    if (left == NULL) 
-        return NULL; // Propagate error
+	struct token *tok = cur(p);
+	struct ast_node *expr;
 
-    while (parser_match(parser, TOKEN_PLUS) || parser_match(parser, TOKEN_MINUS)) 
-	{
-        Token* op = parser_current_token(parser);
-        parser_advance(parser);
-        ASTNode* right = parser_parse_term(parser);
-        if (right == NULL) 
-            return NULL; // Propagate error
-        left = ast_create_binary_op(left, op->type, right, op->line);
-    }
-
-    return left;
+	switch (tok->type) {
+	case TOKEN_NUMBER:
+		advance(p);
+		return ast_create_number(tok->number, tok->line);
+	case TOKEN_STRING:
+		advance(p);
+		return ast_create_string(tok->value, tok->line);
+	case TOKEN_IDENTIFIER:
+		return parse_identifier_or_call(p);
+	case TOKEN_LPAREN:
+		advance(p);
+		expr = parse_expression(p);
+		consume(p, TOKEN_RPAREN);
+		return expr;
+	default:
+		fprintf(stderr,
+			"parse error: unexpected token '%s' "
+			"at line %d\n",
+			tok->value, tok->line);
+		return NULL;
+	}
 }
 
-// Parse comparison operations
-static ASTNode* parser_parse_comparison(Parser* parser) 
+static struct ast_node *parse_unary(struct parser *p)
 {
-    ASTNode* left = parser_parse_arithmetic(parser);
-    if (left == NULL) 
-        return NULL; // Propagate error
+	struct token *op;
+	struct ast_node *node;
+	struct ast_node *operand;
 
-    while (parser_match(parser, TOKEN_EQUAL) || parser_match(parser, TOKEN_NOT_EQUAL) ||
-           parser_match(parser, TOKEN_LESS) || parser_match(parser, TOKEN_GREATER) ||
-           parser_match(parser, TOKEN_LESS_EQUAL) || parser_match(parser, TOKEN_GREATER_EQUAL)) 
-	{
-        Token* op = parser_current_token(parser);
-        parser_advance(parser);
-        ASTNode* right = parser_parse_arithmetic(parser);
-        if (right == NULL) 
-            return NULL; // Propagate error
-        left = ast_create_binary_op(left, op->type, right, op->line);
-    }
+	if (!match(p, TOKEN_MINUS) && !match(p, TOKEN_PLUS))
+		return parse_primary(p);
 
-    return left;
+	op = cur(p);
+	advance(p);
+
+	operand = parse_unary(p);
+	if (!operand)
+		return NULL;
+
+	node = ast_create_node(AST_UNARY_OP, op->line);
+	if (!node) {
+		ast_free(operand);
+		return NULL;
+	}
+
+	node->data.unary_op.op      = op->type;
+	node->data.unary_op.operand = operand;
+	return node;
 }
 
-// Parse expressions (top level)
-static ASTNode* parser_parse_expression(Parser* parser) 
+static struct ast_node *parse_term(struct parser *p)
 {
-    return parser_parse_comparison(parser);
+	struct ast_node *left;
+	struct ast_node *right;
+	struct ast_node *node;
+	struct token *op;
+
+	left = parse_unary(p);
+	if (!left)
+		return NULL;
+
+	while (match(p, TOKEN_MULTIPLY) || match(p, TOKEN_DIVIDE)) {
+		op    = cur(p);
+		advance(p);
+		right = parse_unary(p);
+		if (!right) {
+			ast_free(left);
+			return NULL;
+		}
+		node = ast_create_binary_op(left, op->type, right,
+					    op->line);
+		if (!node) {
+			ast_free(left);
+			ast_free(right);
+			return NULL;
+		}
+		left = node;
+	}
+
+	return left;
 }
 
-// Parse if statement
-static ASTNode* parser_parse_if_statement(Parser* parser) {
-    Token* if_token = parser_current_token(parser);
-    parser_advance(parser); // consume 'if'
+static struct ast_node *parse_arithmetic(struct parser *p)
+{
+	struct ast_node *left;
+	struct ast_node *right;
+	struct ast_node *node;
+	struct token *op;
 
-    ASTNode* condition = parser_parse_expression(parser);
-    parser_consume(parser, TOKEN_COLON);
-    parser_skip_newlines(parser);
+	left = parse_term(p);
+	if (!left)
+		return NULL;
 
-    ASTNode* then_block = parser_parse_block(parser);
-    ASTNode* else_block = NULL;
+	while (match(p, TOKEN_PLUS) || match(p, TOKEN_MINUS)) {
+		op    = cur(p);
+		advance(p);
+		right = parse_term(p);
+		if (!right) {
+			ast_free(left);
+			return NULL;
+		}
+		node = ast_create_binary_op(left, op->type, right,
+					    op->line);
+		if (!node) {
+			ast_free(left);
+			ast_free(right);
+			return NULL;
+		}
+		left = node;
+	}
 
-    // Skip any newlines after the block
-    parser_skip_newlines(parser);
-
-    // Check for else clause
-    if (parser_match(parser, TOKEN_ELSE)) 
-	{
-        parser_advance(parser); // consume 'else'
-        parser_consume(parser, TOKEN_COLON);
-        parser_skip_newlines(parser);
-        else_block = parser_parse_block(parser);
-    }
-
-    ASTNode* node = ast_create_node(AST_IF_STMT, if_token->line);
-    node->data.if_stmt.condition = condition;
-    node->data.if_stmt.then_block = then_block;
-    node->data.if_stmt.else_block = else_block;
-
-    return node;
+	return left;
 }
 
-// Parse while statement
-static ASTNode* parser_parse_while_statement(Parser* parser) 
+static int is_comparison_op(enum token_type t)
 {
-    Token* while_token = parser_current_token(parser);
-    parser_advance(parser); // consume 'while'
-
-    ASTNode* condition = parser_parse_expression(parser);
-    parser_consume(parser, TOKEN_COLON);
-    parser_skip_newlines(parser);
-
-    ASTNode* body = parser_parse_block(parser);
-
-    ASTNode* node = ast_create_node(AST_WHILE_STMT, while_token->line);
-    node->data.while_stmt.condition = condition;
-    node->data.while_stmt.body = body;
-
-    return node;
+	return (t == TOKEN_EQUAL        ||
+		t == TOKEN_NOT_EQUAL    ||
+		t == TOKEN_LESS         ||
+		t == TOKEN_GREATER      ||
+		t == TOKEN_LESS_EQUAL   ||
+		t == TOKEN_GREATER_EQUAL);
 }
 
-// Parse function definition
-static ASTNode* parser_parse_function_def(Parser* parser) 
+static struct ast_node *parse_comparison(struct parser *p)
 {
-    Token* def_token = parser_current_token(parser);
-    parser_advance(parser); // consume 'def'
+	struct ast_node *left;
+	struct ast_node *right;
+	struct ast_node *node;
+	struct token    *op;
 
-    if (!parser_match(parser, TOKEN_IDENTIFIER)) 
-	{
-        printf("Parse error: expected function name at line %d\n", def_token->line);
-        return NULL;
-    }
+	left = parse_arithmetic(p);
+	if (!left)
+		return NULL;
 
-    Token* name_token = parser_current_token(parser);
-    parser_advance(parser);
+	while (is_comparison_op(cur(p)->type)) {
+		op    = cur(p);
+		advance(p);
+		right = parse_arithmetic(p);
+		if (!right) {
+			ast_free(left);
+			return NULL;
+		}
+		node = ast_create_binary_op(left, op->type, right,
+					    op->line);
+		if (!node) {
+			ast_free(left);
+			ast_free(right);
+			return NULL;
+		}
+		left = node;
+	}
 
-    parser_consume(parser, TOKEN_LPAREN);
-
-    ASTNode* node = ast_create_node(AST_FUNCTION_DEF, def_token->line);
-    node->data.function_def.name = malloc(strlen(name_token->value) + 1);
-    strcpy(node->data.function_def.name, name_token->value);
-
-    // Parse parameters
-    node->data.function_def.parameters = malloc(sizeof(char*) * 16);
-    node->data.function_def.param_count = 0;
-
-    if (!parser_match(parser, TOKEN_RPAREN)) 
-	{
-        do 
-		{
-            if (parser_match(parser, TOKEN_IDENTIFIER)) 
-			{
-                Token* param = parser_current_token(parser);
-                parser_advance(parser);
-
-                node->data.function_def.parameters[node->data.function_def.param_count] =
-                    malloc(strlen(param->value) + 1);
-                strcpy(node->data.function_def.parameters[node->data.function_def.param_count],
-                       param->value);
-                node->data.function_def.param_count++;
-            }
-        } while (parser_consume(parser, TOKEN_COMMA));
-    }
-
-    parser_consume(parser, TOKEN_RPAREN);
-    parser_consume(parser, TOKEN_COLON);
-    parser_skip_newlines(parser);
-
-    node->data.function_def.body = parser_parse_block(parser);
-
-    return node;
+	return left;
 }
 
-// Parse return statement
-static ASTNode* parser_parse_return_statement(Parser* parser) 
+static struct ast_node *parse_expression(struct parser *p)
 {
-    Token* return_token = parser_current_token(parser);
-    parser_advance(parser); // consume 'return'
-
-    ASTNode* node = ast_create_node(AST_RETURN_STMT, return_token->line);
-
-    // Check if there's a return value
-    if (!parser_match(parser, TOKEN_NEWLINE) && !parser_match(parser, TOKEN_EOF)) 
-        node->data.return_stmt.value = parser_parse_expression(parser);
-    else 
-        node->data.return_stmt.value = NULL;
-
-    return node;
+	return parse_comparison(p);
 }
 
-// Parse print statement (built-in function)
-static ASTNode* parser_parse_print_statement(Parser* parser) 
+/* --- Statement parsing --------------------------------------------------- */
+
+static struct ast_node *parse_if_stmt(struct parser *p)
 {
-    Token* print_token = parser_current_token(parser);
-    parser_advance(parser); // consume 'print'
+	struct token *tok = cur(p);
+	struct ast_node *condition;
+	struct ast_node *then_block;
+	struct ast_node *else_block = NULL;
+	struct ast_node *node;
 
-    parser_consume(parser, TOKEN_LPAREN);
+	advance(p); /* consume 'if' */
 
-    ASTNode* node = ast_create_node(AST_PRINT_STMT, print_token->line);
-    node->data.print_stmt.value = parser_parse_expression(parser);
+	condition = parse_expression(p);
+	if (!condition)
+		return NULL;
 
-    parser_consume(parser, TOKEN_RPAREN);
+	if (!consume(p, TOKEN_COLON)) {
+		fprintf(stderr,
+			"parse error: expected ':' after if "
+			"at line %d\n", tok->line);
+		ast_free(condition);
+		return NULL;
+	}
 
-    return node;
+	skip_newlines(p);
+	then_block = parse_block(p);
+	if (!then_block) {
+		ast_free(condition);
+		return NULL;
+	}
+
+	skip_newlines(p);
+	if (match(p, TOKEN_ELSE)) {
+		advance(p);
+		if (!consume(p, TOKEN_COLON)) {
+			fprintf(stderr,
+				"parse error: expected ':' after else "
+				"at line %d\n", cur(p)->line);
+			ast_free(condition);
+			ast_free(then_block);
+			return NULL;
+		}
+		skip_newlines(p);
+		else_block = parse_block(p);
+		if (!else_block) {
+			ast_free(condition);
+			ast_free(then_block);
+			return NULL;
+		}
+	}
+
+	node = ast_create_node(AST_IF_STMT, tok->line);
+	if (!node)
+		goto err;
+
+	node->data.if_stmt.condition  = condition;
+	node->data.if_stmt.then_block = then_block;
+	node->data.if_stmt.else_block = else_block;
+	return node;
+
+err:
+	ast_free(condition);
+	ast_free(then_block);
+	ast_free(else_block);
+	return NULL;
 }
 
-// Parse assignment statement
-static ASTNode* parser_parse_assignment(Parser* parser) 
+static struct ast_node *parse_while_stmt(struct parser *p)
 {
-    Token* id_token = parser_current_token(parser);
-    parser_advance(parser); // consume identifier
+	struct token *tok = cur(p);
+	struct ast_node *condition;
+	struct ast_node *body;
+	struct ast_node *node;
 
-    parser_consume(parser, TOKEN_ASSIGN);
+	advance(p); /* consume 'while' */
 
-    ASTNode* value = parser_parse_expression(parser);
+	condition = parse_expression(p);
+	if (!condition)
+		return NULL;
 
-    ASTNode* node = ast_create_node(AST_ASSIGNMENT, id_token->line);
-    node->data.assignment.variable = malloc(strlen(id_token->value) + 1);
-    strcpy(node->data.assignment.variable, id_token->value);
-    node->data.assignment.value = value;
+	if (!consume(p, TOKEN_COLON)) {
+		fprintf(stderr,
+			"parse error: expected ':' after while "
+			"at line %d\n", tok->line);
+		ast_free(condition);
+		return NULL;
+	}
 
-    return node;
+	skip_newlines(p);
+	body = parse_block(p);
+	if (!body) {
+		ast_free(condition);
+		return NULL;
+	}
+
+	node = ast_create_node(AST_WHILE_STMT, tok->line);
+	if (!node)
+		goto err;
+
+	node->data.while_stmt.condition = condition;
+	node->data.while_stmt.body      = body;
+	return node;
+
+err:
+	ast_free(condition);
+	ast_free(body);
+	return NULL;
 }
 
-// Parse a single statement
-static ASTNode* parser_parse_statement(Parser* parser) 
+static int parse_param_list(struct parser *p, struct ast_node *node)
 {
-    parser_skip_newlines(parser);
+	struct token *param_tok;
+	int j;
 
-    if (parser_match(parser, TOKEN_EOF) || parser_match(parser, TOKEN_DEDENT)) 
-        return NULL;
+	if (match(p, TOKEN_RPAREN))
+		return 1;
 
-    Token* token = parser_current_token(parser);
+	do {
+		if (!match(p, TOKEN_IDENTIFIER)) {
+			fprintf(stderr,
+				"parse error: expected param name "
+				"at line %d\n", cur(p)->line);
+			return 0;
+		}
+		if (node->data.function_def.param_count >= MAX_PARAMS) {
+			fprintf(stderr,
+				"parse error: too many params "
+				"at line %d\n", cur(p)->line);
+			return 0;
+		}
+		param_tok = cur(p);
+		advance(p);
+		j = node->data.function_def.param_count;
+		node->data.function_def.parameters[j] =
+			strdup(param_tok->value);
+		if (!node->data.function_def.parameters[j])
+			return 0;
+		node->data.function_def.param_count++;
+	} while (consume(p, TOKEN_COMMA));
 
-    switch (token->type) 
-	{
-        case TOKEN_IF:
-            return parser_parse_if_statement(parser);
-        case TOKEN_WHILE:
-            return parser_parse_while_statement(parser);
-        case TOKEN_DEF:
-            return parser_parse_function_def(parser);
-        case TOKEN_RETURN:
-            return parser_parse_return_statement(parser);
-        case TOKEN_PRINT:
-            return parser_parse_print_statement(parser);
-        case TOKEN_IDENTIFIER:
-            // Look ahead to see if it's an assignment
-            if (parser->position + 1 < parser->token_count &&
-                parser->tokens[parser->position + 1].type == TOKEN_ASSIGN) 
-                return parser_parse_assignment(parser);
-            else 
-			{
-                // It's an expression statement
-                ASTNode* expr = parser_parse_expression(parser);
-                return expr;
-            }
-        case TOKEN_ELSE:
-        case TOKEN_COLON:
-        case TOKEN_DEDENT:
-            // These tokens should not appear at statement level
-            printf("Parse error: unexpected token '%s' at line %d (context error)\n",
-                   token->value, token->line);
-            parser_advance(parser); // Skip the problematic token and continue
-            return NULL;
-        default: 
-		{
-            // Try to parse as expression, but handle errors gracefully
-            ASTNode* expr = parser_parse_expression(parser);
-			if (expr == NULL) 
-			{
-                // If expression parsing fails, skip the token and continue
-                printf("Skipping unparseable token '%s' at line %d\n", token->value, token->line);
-                parser_advance(parser);
-                return NULL;
-            }
-
-            return expr;
-        }
-    }
+	return 1;
 }
 
-// Parse a block of statements (indented)
-static ASTNode* parser_parse_block(Parser* parser) 
+static struct ast_node *parse_function_def(struct parser *p)
 {
-    ASTNode* block = ast_create_node(AST_BLOCK, parser_current_token(parser)->line);
-    block->data.block.statements = malloc(sizeof(ASTNode*) * 64);
-    block->data.block.count = 0;
+	struct token	*def_tok = cur(p);
+	struct token	*name_tok;
+	struct ast_node *node;
+	struct ast_node *body;
 
-    if (!parser_consume(parser, TOKEN_INDENT)) 
-        // If no indent token, create empty block
-        return block;
+	advance(p); /* consume 'def' */
 
-    while (!parser_match(parser, TOKEN_DEDENT) && !parser_match(parser, TOKEN_EOF)) 
-	{
-        ASTNode* stmt = parser_parse_statement(parser);
-        if (stmt != NULL) 
-            block->data.block.statements[block->data.block.count++] = stmt;
-        parser_skip_newlines(parser);
+	if (!match(p, TOKEN_IDENTIFIER)) {
+		fprintf(stderr,
+			"parse error: expected function name "
+			"at line %d\n", def_tok->line);
+		return NULL;
+	}
 
-        // Safety check to prevent infinite loops
-        if (block->data.block.count >= 64) 
-		{
-            printf("Error: Block too large (over 64 statements)\n");
-            break;
-        }
-    }
+	name_tok = cur(p);
+	advance(p);
 
-    parser_consume(parser, TOKEN_DEDENT);
+	if (!consume(p, TOKEN_LPAREN)) {
+		fprintf(stderr,
+			"parse error: expected '(' "
+			"at line %d\n", name_tok->line);
+		return NULL;
+	}
 
-    return block;
+	node = ast_create_node(AST_FUNCTION_DEF, def_tok->line);
+	if (!node)
+		return NULL;
+
+	node->data.function_def.name =
+		strdup(name_tok->value);
+	node->data.function_def.parameters =
+		malloc(sizeof(char *) * MAX_PARAMS);
+	node->data.function_def.param_count = 0;
+
+	if (!node->data.function_def.name ||
+	    !node->data.function_def.parameters)
+		goto err;
+
+	if (!parse_param_list(p, node))
+		goto err;
+
+	if (!consume(p, TOKEN_RPAREN) || !consume(p, TOKEN_COLON)) {
+		fprintf(stderr,
+			"parse error: expected ')' and ':' "
+			"at line %d\n", name_tok->line);
+		goto err;
+	}
+
+	skip_newlines(p);
+	body = parse_block(p);
+	if (!body)
+		goto err;
+
+	node->data.function_def.body = body;
+	return node;
+
+err:
+	ast_free(node);
+	return NULL;
 }
 
-// Parse entire program
-ASTNode* parser_parse_program(Parser* parser) 
+static struct ast_node *parse_return_stmt(struct parser *p)
 {
-    ASTNode* program = ast_create_node(AST_PROGRAM, 1);
-    program->data.program.statements = malloc(sizeof(ASTNode*) * 256);
-    program->data.program.count = 0;
+	struct token	*tok = cur(p);
+	struct ast_node *node;
 
-    while (!parser_match(parser, TOKEN_EOF)) 
-	{
-        ASTNode* stmt = parser_parse_statement(parser);
-        if (stmt != NULL) 
-            program->data.program.statements[program->data.program.count++] = stmt;
-        parser_skip_newlines(parser);
-    }
+	advance(p); /* consume 'return' */
 
-    return program;
+	node = ast_create_node(AST_RETURN_STMT, tok->line);
+	if (!node)
+		return NULL;
+
+	if (match(p, TOKEN_NEWLINE) ||
+	    match(p, TOKEN_DEDENT)  ||
+	    match(p, TOKEN_EOF)) {
+		node->data.return_stmt.value = NULL;
+		return node;
+	}
+
+	node->data.return_stmt.value = parse_expression(p);
+	if (!node->data.return_stmt.value) {
+		ast_free(node);
+		return NULL;
+	}
+
+	return node;
+}
+
+static struct ast_node *parse_print_stmt(struct parser *p)
+{
+	struct token *tok = cur(p);
+	struct ast_node *node;
+	struct ast_node *value;
+
+	advance(p); /* consume 'print' */
+
+	if (!consume(p, TOKEN_LPAREN)) {
+		fprintf(stderr,
+			"parse error: expected '(' after print "
+			"at line %d\n", tok->line);
+		return NULL;
+	}
+
+	value = parse_expression(p);
+	if (!value)
+		return NULL;
+
+	if (!consume(p, TOKEN_RPAREN)) {
+		fprintf(stderr,
+			"parse error: expected ')' closing print "
+			"at line %d\n", tok->line);
+		ast_free(value);
+		return NULL;
+	}
+
+	node = ast_create_node(AST_PRINT_STMT, tok->line);
+	if (!node) {
+		ast_free(value);
+		return NULL;
+	}
+
+	node->data.print_stmt.value = value;
+	return node;
+}
+
+static struct ast_node *parse_assignment(struct parser *p)
+{
+	struct token *id_tok = cur(p);
+	struct ast_node *node;
+	struct ast_node *value;
+
+	advance(p); /* consume identifier */
+	advance(p); /* consume '='        */
+
+	value = parse_expression(p);
+	if (!value)
+		return NULL;
+
+	node = ast_create_node(AST_ASSIGNMENT, id_tok->line);
+	if (!node) {
+		ast_free(value);
+		return NULL;
+	}
+
+	node->data.assignment.variable = strdup(id_tok->value);
+	if (!node->data.assignment.variable) {
+		ast_free(node);
+		ast_free(value);
+		return NULL;
+	}
+
+	node->data.assignment.value = value;
+	return node;
+}
+
+static int next_is_assign(const struct parser *p)
+{
+	return (p->position + 1 < p->token_count &&
+		p->tokens[p->position + 1].type == TOKEN_ASSIGN);
+}
+
+static struct ast_node *parse_statement(struct parser *p)
+{
+	skip_newlines(p);
+
+	if (match(p, TOKEN_EOF) || match(p, TOKEN_DEDENT))
+		return NULL;
+
+	switch (cur(p)->type) {
+	case TOKEN_IF:		return parse_if_stmt(p);
+	case TOKEN_WHILE:	return parse_while_stmt(p);
+	case TOKEN_DEF:		return parse_function_def(p);
+	case TOKEN_RETURN:	return parse_return_stmt(p);
+	case TOKEN_PRINT:	return parse_print_stmt(p);
+	case TOKEN_IDENTIFIER:
+		if (next_is_assign(p))
+			return parse_assignment(p);
+		return parse_expression(p);
+	default:
+		return parse_expression(p);
+	}
+}
+
+/* --- Block and program --------------------------------------------------- */
+
+static struct ast_node *parse_block(struct parser *p)
+{
+	struct ast_node	 *block;
+	struct ast_node	 *stmt;
+
+	block = ast_create_node(AST_BLOCK, cur(p)->line);
+	if (!block)
+		return NULL;
+
+	block->data.block.statements =
+		malloc(sizeof(struct ast_node *) * BLOCK_INIT_CAP);
+	block->data.block.count    = 0;
+	block->data.block.capacity = BLOCK_INIT_CAP;
+
+	if (!block->data.block.statements) {
+		ast_free(block);
+		return NULL;
+	}
+
+	if (!consume(p, TOKEN_INDENT))
+		return block;
+
+	while (!match(p, TOKEN_DEDENT) && !match(p, TOKEN_EOF)) {
+		stmt = parse_statement(p);
+		skip_newlines(p);
+		if (!stmt)
+			continue;
+		if (!append_stmt(&block->data.block.statements,
+				 &block->data.block.count,
+				 &block->data.block.capacity,
+				 stmt)) {
+			ast_free(block);
+			return NULL;
+		}
+	}
+
+	consume(p, TOKEN_DEDENT);
+	return block;
+}
+
+/**
+ * parser_parse_program() - Parse all top-level statements into an AST.
+ */
+struct ast_node *parser_parse_program(struct parser *p)
+{
+	struct ast_node	 *prog;
+	struct ast_node	 *stmt;
+
+	if (!p)
+		return NULL;
+
+	prog = ast_create_node(AST_PROGRAM, 1);
+	if (!prog)
+		return NULL;
+
+	prog->data.program.statements =
+		malloc(sizeof(struct ast_node *) * PROG_INIT_CAP);
+	prog->data.program.count    = 0;
+	prog->data.program.capacity = PROG_INIT_CAP;
+
+	if (!prog->data.program.statements) {
+		ast_free(prog);
+		return NULL;
+	}
+
+	while (!match(p, TOKEN_EOF)) {
+		stmt = parse_statement(p);
+		skip_newlines(p);
+		if (!stmt)
+			continue;
+		if (!append_stmt(&prog->data.program.statements,
+				 &prog->data.program.count,
+				 &prog->data.program.capacity,
+				 stmt)) {
+			ast_free(prog);
+			return NULL;
+		}
+	}
+
+	return prog;
 }
